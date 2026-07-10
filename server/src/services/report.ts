@@ -1,8 +1,6 @@
-import { PrismaClient } from '@prisma/client'
+import { prisma } from '../lib/prisma'
 import { analyzeImage } from './ai'
 import { readFile } from './storage'
-
-const prisma = new PrismaClient()
 
 export async function generateReport(userId: string, imageUrl: string, imageKey: string, _userInfo: { name?: string; age?: number }) {
   const report = await prisma.report.create({

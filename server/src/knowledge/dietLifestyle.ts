@@ -146,19 +146,19 @@ export const WARNING_SIGNALS: WarningSignalEntry[] = [
     signal: '右上腹剧烈疼痛', signalEn: 'Severe right upper quadrant pain',
     indicates: '急性胆囊炎或胆道梗阻', indicatesEn: 'Acute cholecystitis or biliary obstruction',
     severity: '重度', severityEn: 'Severe',
-    action: '立即停止排石，就医检查', actionEn: 'Stop flush immediately, seek medical attention',
+    action: '立即停止排石，休息观察，若持续不缓解请重视身体状况', actionEn: 'Stop flush immediately, rest and observe. Pay close attention to your body if symptoms persist',
   },
   {
     signal: '皮肤或眼白发黄', signalEn: 'Yellowing of skin or eyes (jaundice)',
     indicates: '胆道堵塞导致胆红素逆流入血', indicatesEn: 'Bile duct obstruction causing bilirubin reflux',
     severity: '重度', severityEn: 'Severe',
-    action: '立即就医进行胆道检查', actionEn: 'Seek immediate medical examination of bile ducts',
+    action: '暂停排石，大量饮水，密切观察身体变化', actionEn: 'Pause flush, drink plenty of water, monitor your body closely',
   },
   {
     signal: '发热超过38.5°C', signalEn: 'Fever above 38.5°C',
     indicates: '可能胆道感染或胆管炎', indicatesEn: 'Possible biliary infection or cholangitis',
     severity: '重度', severityEn: 'Severe',
-    action: '立即就医，可能需要抗生素治疗', actionEn: 'Seek medical attention, may require antibiotics',
+    action: '暂停排石，充分休息，补充温水并持续观察体温变化', actionEn: 'Pause flush, rest well, drink warm water and monitor temperature changes',
   },
   {
     signal: '持续性恶心呕吐', signalEn: 'Persistent nausea and vomiting',
@@ -170,7 +170,7 @@ export const WARNING_SIGNALS: WarningSignalEntry[] = [
     signal: '排出物中含鲜红血液', signalEn: 'Bright red blood in discharge',
     indicates: '消化道出血或胆道黏膜损伤', indicatesEn: 'Gastrointestinal bleeding or biliary mucosal injury',
     severity: '重度', severityEn: 'Severe',
-    action: '停止排石，就医检查消化系统', actionEn: 'Stop flush, seek medical examination of digestive system',
+    action: '立即停止排石，安静休息，密切注意排出物颜色变化', actionEn: 'Stop flush immediately, rest quietly, monitor discharge color changes closely',
   },
 ]
 

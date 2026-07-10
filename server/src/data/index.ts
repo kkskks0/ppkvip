@@ -1,5 +1,11 @@
-export { parseAiJsonResponse, validateAndNormalize, checkDataIntegrity, serializeAnalysisData, deserializeAnalysisData, CURRENT_SCHEMA_VERSION } from './validator'
-export type { ValidationReport, IntegrityCheckResult } from './validator'
+export { parseAiJsonResponse, validateAndNormalize, checkDataIntegrity, serializeAnalysisData, deserializeAnalysisData, validateTextureComposition, CURRENT_SCHEMA_VERSION } from './validator'
+export type { ValidationReport, IntegrityCheckResult, TextureCompositionValidation } from './validator'
+
+export {
+  canonicalizeColor, canonicalizeShape, canonicalizeSize,
+  sanitizeHexColor, checkOutputQuality,
+} from './canonicalize'
+export type { CanonicalizedColor, CanonicalizedShape, CanonicalizedSize, QualityCheckResult } from './canonicalize'
 
 export {
   ANALYSIS_FIELD_RULES, NESTED_SCHEMAS, COLOR_FIELD_RULES, SHAPE_FIELD_RULES,

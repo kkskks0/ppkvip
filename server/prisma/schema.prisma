@@ -45,8 +45,10 @@ model Report {
   user            User     @relation(fields: [userId], references: [id])
   imageUrl        String
   imageKey        String
-  analysis        String   @default("{}")
+  analysis        String   @default("{}")     // 完整深度分析结果
+  quickAnalysis   String   @default("{}")     // 快速分析结果（免费阶段）
   analysisVersion Int      @default(0)
+  analysisType    String   @default("PENDING") // PENDING / QUICK / DEEP
   reportType      String   @default("SINGLE_PAY") // SINGLE_PAY / ANNUAL_MEMBER
   isUnlocked      Boolean  @default(false)  // 是否已解锁完整报告
   unlockedAt      DateTime?                  // 解锁时间

@@ -18,6 +18,7 @@ import MaleIcon from '@mui/icons-material/Male'
 import FemaleIcon from '@mui/icons-material/Female'
 import PersonIcon from '@mui/icons-material/Person'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import LockIcon from '@mui/icons-material/Lock'
 import PageLayout from '../components/layout/PageLayout'
 import { useLang } from '../i18n/LangContext'
 
@@ -33,26 +34,29 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<any>(null)
   const [reports, setReports] = useState<any[]>([])
 
-  // Form state
+  // Form state — only essential fields, no PII (birthday/email/address/emergencyContact removed)
   const [name, setName] = useState('')
   const [age, setAge] = useState('')
   const [gender, setGender] = useState('')
-  const [birthday, setBirthday] = useState('')
   const [healthGoal, setHealthGoal] = useState('')
-  const [email, setEmail] = useState('')
-  const [address, setAddress] = useState('')
-  const [emergencyContact, setEmergencyContact] = useState('')
   const [medicalHistory, setMedicalHistory] = useState('')
   const [dietaryPreference, setDietaryPreference] = useState('')
   const [notes, setNotes] = useState('')
   const [snackOpen, setSnackOpen] = useState(false)
   const [snackMsg, setSnackMsg] = useState('')
+  const [snackSeverity, setSnackSeverity] = useState<'success' | 'error'>('success')
 
   useEffect(() => {
     if (!userId) return
     loadProfile()
     loadReports()
   }, [userId])
+
+  const showMsg = (msg: string, severity: 'success' | 'error' = 'success') => {
+    setSnackMsg(msg)
+    setSnackSeverity(severity)
+    setSnackOpen(true)
+  }
 
   const loadProfile = async () => {
     try {
@@ -64,11 +68,7 @@ export default function ProfilePage() {
         setName(u.name || '')
         setAge(u.age?.toString() || '')
         setGender(u.gender || '')
-        setBirthday(u.birthday || '')
         setHealthGoal(u.healthGoal || '')
-        setEmail(p.email || '')
-        setAddress(p.address || '')
-        setEmergencyContact(p.emergencyContact || '')
         setMedicalHistory(p.medicalHistory || '')
         setDietaryPreference(p.dietaryPreference || '')
         setNotes(p.notes || '')
@@ -92,17 +92,14 @@ export default function ProfilePage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name, age: age ? parseInt(age) : undefined, gender, birthday,
-          healthGoal, email, address, emergencyContact,
-          medicalHistory, dietaryPreference, notes,
+          name, age: age ? parseInt(age) : undefined, gender,
+          healthGoal, medicalHistory, dietaryPreference, notes,
         }),
       })
       const data = await res.json()
-      setSnackMsg(data.code === 0 ? '档案保存成功' : data.message || '保存失败')
-      setSnackOpen(true)
+      showMsg(data.code === 0 ? (t('profileSaved') || '档案保存成功') : (data.message || t('saveFailed') || '保存失败'), data.code === 0 ? 'success' : 'error')
     } catch {
-      setSnackMsg('网络异常，请重试')
-      setSnackOpen(true)
+      showMsg(t('errorNetwork'), 'error')
     } finally { setSaving(false) }
   }
 
@@ -119,7 +116,7 @@ export default function ProfilePage() {
       <Box sx={{ maxWidth: 600, mx: 'auto' }}>
         {/* Header */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-          <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(-1)} size="small">返回</Button>
+          <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(-1)} size="small">{t('goBack') || '返回'}</Button>
           <Typography variant="h6" fontWeight="bold">{t('profileTitle')}</Typography>
         </Box>
         <Typography color="text.secondary" sx={{ mb: 3 }}>{t('profileDesc')}</Typography>
@@ -131,11 +128,11 @@ export default function ProfilePage() {
               <PersonIcon color={profile.user.memberType === 'ANNUAL' ? 'success' : 'warning'} />
               <Box>
                 <Typography fontWeight="bold" fontSize={14}>
-                  当前会员：{profile.user.memberType === 'ANNUAL' ? '年费会员' : '免费用户'}
+                  {t('memberStatus')}：{profile.user.memberType === 'ANNUAL' ? t('annualMemberLabel') : t('freeMemberLabel')}
                 </Typography>
                 {profile.user.memberExpireAt && (
                   <Typography variant="caption" color="text.secondary">
-                    到期时间：{new Date(profile.user.memberExpireAt).toLocaleDateString('zh-CN')}
+                    {t('memberExpiry')}：{new Date(profile.user.memberExpireAt).toLocaleDateString('zh-CN')}
                   </Typography>
                 )}
               </Box>
@@ -143,17 +140,17 @@ export default function ProfilePage() {
           </Paper>
         )}
 
-        {/* Basic Info */}
+        {/* Basic Info — no PII fields */}
         <Card sx={{ mb: 2, borderRadius: 2 }}>
           <CardContent>
-            <Typography fontWeight="bold" sx={{ mb: 2 }}>基本信息</Typography>
+            <Typography fontWeight="bold" sx={{ mb: 2 }}>{t('basicInfo')}</Typography>
             <TextField fullWidth label={t('name')} value={name} onChange={e => setName(e.target.value)} sx={{ mb: 1.5 }} size="small" />
             <Grid container spacing={1.5} sx={{ mb: 1.5 }}>
               <Grid item xs={6}>
-                <TextField fullWidth label="年龄" type="number" value={age} onChange={e => setAge(e.target.value)} size="small" />
+                <TextField fullWidth label={t('age')} type="number" value={age} onChange={e => setAge(e.target.value)} size="small" inputProps={{ min: 1, max: 150 }} />
               </Grid>
               <Grid item xs={6}>
-                <TextField fullWidth label={t('birthday')} type="date" value={birthday} onChange={e => setBirthday(e.target.value)} size="small" InputLabelProps={{ shrink: true }} />
+                <TextField fullWidth label={t('healthGoal')} value={healthGoal} onChange={e => setHealthGoal(e.target.value)} size="small" placeholder={t('healthGoalPlaceholder')} />
               </Grid>
             </Grid>
             <Box sx={{ mb: 1 }}>
@@ -167,35 +164,32 @@ export default function ProfilePage() {
                 </ToggleButton>
               </ToggleButtonGroup>
             </Box>
-            <TextField fullWidth label={t('healthGoal')} value={healthGoal} onChange={e => setHealthGoal(e.target.value)} size="small" placeholder="如：降低胆固醇、改善消化" />
           </CardContent>
         </Card>
 
-        {/* Contact & Medical */}
+        {/* Health Info — medical history, diet, notes only */}
         <Card sx={{ mb: 2, borderRadius: 2 }}>
           <CardContent>
-            <Typography fontWeight="bold" sx={{ mb: 2 }}>联系方式与健康信息</Typography>
-            <TextField fullWidth label={t('email')} value={email} onChange={e => setEmail(e.target.value)} sx={{ mb: 1.5 }} size="small" />
-            <TextField fullWidth label={t('address')} value={address} onChange={e => setAddress(e.target.value)} sx={{ mb: 1.5 }} size="small" />
-            <TextField fullWidth label={t('emergencyContact')} value={emergencyContact} onChange={e => setEmergencyContact(e.target.value)} sx={{ mb: 1.5 }} size="small" />
-            <TextField fullWidth label={t('medicalHistory')} value={medicalHistory} onChange={e => setMedicalHistory(e.target.value)} sx={{ mb: 1.5 }} size="small" multiline rows={2} placeholder="如：胆囊炎、脂肪肝、糖尿病等" />
-            <TextField fullWidth label={t('dietaryPreference')} value={dietaryPreference} onChange={e => setDietaryPreference(e.target.value)} sx={{ mb: 1.5 }} size="small" placeholder="如：纯素、清淡饮食" />
+            <Typography fontWeight="bold" sx={{ mb: 2 }}>{t('healthInfo')}</Typography>
+            <TextField fullWidth label={t('medicalHistory')} value={medicalHistory} onChange={e => setMedicalHistory(e.target.value)} sx={{ mb: 1.5 }} size="small" multiline rows={2} placeholder={t('medicalHistoryPlaceholder')} />
+            <TextField fullWidth label={t('dietaryPreference')} value={dietaryPreference} onChange={e => setDietaryPreference(e.target.value)} sx={{ mb: 1.5 }} size="small" placeholder={t('dietaryPreferencePlaceholder')} />
             <TextField fullWidth label={t('notes')} value={notes} onChange={e => setNotes(e.target.value)} size="small" multiline rows={2} />
           </CardContent>
         </Card>
 
-        {/* Report History */}
+        {/* Report History — user's own records only */}
         <Card sx={{ mb: 2, borderRadius: 2 }}>
           <CardContent>
-            <Typography fontWeight="bold" sx={{ mb: 1.5 }}>检测记录（{reports.length}次）</Typography>
+            <Typography fontWeight="bold" sx={{ mb: 1.5 }}>{t('reportHistory')}（{reports.length}{t('reportCount')}）</Typography>
             {reports.length === 0 ? (
-              <Typography color="text.secondary" fontSize={14}>暂无检测记录</Typography>
+              <Typography color="text.secondary" fontSize={14}>{t('noReports')}</Typography>
             ) : (
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                 {reports.map((r: any) => (
                   <Chip
                     key={r.id}
-                    label={`${new Date(r.createdAt).toLocaleDateString('zh-CN')}${r.isUnlocked ? '' : ' 🔒'}`}
+                    label={new Date(r.createdAt).toLocaleDateString('zh-CN')}
+                    icon={!r.isUnlocked ? <LockIcon sx={{ fontSize: 14 }} /> : undefined}
                     onClick={() => navigate(`/report/${r.id}`)}
                     color={r.isUnlocked ? 'primary' : 'default'}
                     variant="outlined"
@@ -209,11 +203,11 @@ export default function ProfilePage() {
 
         <Button variant="contained" fullWidth size="large" onClick={handleSave} disabled={saving}
           sx={{ borderRadius: 2, py: 1.5, fontWeight: 'bold', fontSize: 16, background: 'linear-gradient(135deg, #43A047, #2E7D32)' }}>
-          {saving ? '保存中...' : t('saveProfile')}
+          {saving ? (t('saving') || '保存中...') : t('saveProfile')}
         </Button>
 
         <Snackbar open={snackOpen} autoHideDuration={3000} onClose={() => setSnackOpen(false)} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
-          <Alert severity="success" variant="filled" onClose={() => setSnackOpen(false)}>{snackMsg}</Alert>
+          <Alert severity={snackSeverity} variant="filled" onClose={() => setSnackOpen(false)}>{snackMsg}</Alert>
         </Snackbar>
       </Box>
     </PageLayout>

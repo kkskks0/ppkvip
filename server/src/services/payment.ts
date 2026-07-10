@@ -1,10 +1,9 @@
-import { PrismaClient } from '@prisma/client'
+import { prisma } from '../lib/prisma'
 import { v4 as uuid } from 'uuid'
 import https from 'https'
 import crypto from 'crypto'
 import { config } from '../config'
 
-const prisma = new PrismaClient()
 const isDemoMode = !config.wechat.privateKey
 
 // WeChat Pay APIv3 signature

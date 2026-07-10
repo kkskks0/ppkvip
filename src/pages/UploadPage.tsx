@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
@@ -45,33 +45,49 @@ export default function UploadPage() {
 
   const quotes = ['quote1', 'quote2', 'quote3', 'quote4', 'quote5', 'quote6', 'quote7', 'quote8']
 
+  // Cleanup blob URLs on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      images.forEach(img => URL.revokeObjectURL(img.preview))
+    }
+  }, [images])
+
   useEffect(() => {
     if (!analyzing) return
     const iv = setInterval(() => setQuoteIdx(i => (i + 1) % quotes.length), 4000)
     return () => clearInterval(iv)
   }, [analyzing])
 
-  const showError = (msg: string) => {
+  const showError = useCallback((msg: string) => {
     setErrorMsg(msg)
     setSnackOpen(true)
-  }
+  }, [])
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
-    const remaining = 3 - images.length
-    const newItems: ImageItem[] = files.slice(0, remaining).map(f => ({ file: f, preview: URL.createObjectURL(f) }))
-    setImages(prev => [...prev, ...newItems].slice(0, 3))
+    setImages(prev => {
+      const remaining = 3 - prev.length
+      const newItems: ImageItem[] = files.slice(0, remaining).map(f => ({ file: f, preview: URL.createObjectURL(f) }))
+      return [...prev, ...newItems].slice(0, 3)
+    })
     if (fileRef.current) fileRef.current.value = ''
-  }
+  }, [])
 
-  const handleRemove = (index: number) => setImages(prev => prev.filter((_, i) => i !== index))
+  const handleRemove = useCallback((index: number) => {
+    setImages(prev => {
+      const img = prev[index]
+      if (img) URL.revokeObjectURL(img.preview)
+      return prev.filter((_, i) => i !== index)
+    })
+  }, [])
 
-  const handleUpload = async () => {
+  const handleUpload = useCallback(async () => {
     if (images.length === 0) return
     setAnalyzing(true)
     setCurrentStep(0)
     setProgress(0)
     try {
+      // Phase 1: Upload images
       setCurrentStep(0); setProgress(5)
       const uploadedFiles: { imageUrl: string; imageKey: string }[] = []
       for (const img of images) {
@@ -81,39 +97,44 @@ export default function UploadPage() {
         const uploadRes = await fetch(`${API_BASE}/upload-direct`, { method: 'POST', body: formData })
         const uploadData = await uploadRes.json()
         if (uploadData.code !== 0) {
-          showError(uploadData.message || '图片上传失败，请稍后重试')
+          showError(uploadData.message || t('errorUploadFailed'))
           setAnalyzing(false); return
         }
         uploadedFiles.push({ imageUrl: uploadData.data.previewUrl, imageKey: uploadData.data.filePath })
       }
-      setProgress(10); setCurrentStep(1)
-      const reportRes = await fetch(`${API_BASE}/report-generate-direct`, {
+
+      // Phase 2: Free quick analysis
+      setProgress(15); setCurrentStep(1)
+      const reportRes = await fetch(`${API_BASE}/quick-analysis`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images: uploadedFiles, imageUrl: uploadedFiles[0].imageUrl, imageKey: uploadedFiles[0].imageKey, userName: userName || (lang === 'en' ? 'User' : '用户'), gender: gender || '未填写', lang }),
+        body: JSON.stringify({
+          images: uploadedFiles,
+          imageUrl: uploadedFiles[0].imageUrl,
+          imageKey: uploadedFiles[0].imageKey,
+          userName: userName || t('defaultValue'),
+          gender: gender || '未填写',
+          lang,
+        }),
       })
       const reportData = await reportRes.json()
       if (reportData.code === 0) {
         let step = 1
-        const iv = setInterval(() => { step++; if (step < steps.length) { setCurrentStep(step); setProgress(Math.min(10 + (step / steps.length) * 85, 95)) } }, 4000)
-        const poll = setInterval(async () => {
-          const check = await fetch(`${API_BASE}/report-direct/${reportData.data.reportId}`)
-          const data = await check.json()
-          if (data.code === 0 && data.data?.analysis?.comprehensiveAnalysis) {
-            clearInterval(iv); clearInterval(poll)
-            setProgress(100); setCurrentStep(steps.length - 1)
-            setTimeout(() => navigate(`/report/${reportData.data.reportId}`), 500)
-          }
+        const iv = setInterval(() => { step++; if (step < steps.length) { setCurrentStep(step); setProgress(Math.min(15 + (step / steps.length) * 80, 98)) } }, 2500)
+        setTimeout(() => {
+          clearInterval(iv)
+          setProgress(100); setCurrentStep(steps.length - 1)
+          setTimeout(() => navigate(`/report/${reportData.data.reportId}`), 400)
         }, 3000)
       } else {
-        showError(reportData.message || '图片分析失败，请确保图片清晰且为肝胆排毒相关照片')
+        showError(reportData.message || t('errorAnalysisFailed'))
         setAnalyzing(false)
       }
     } catch {
-      showError('网络连接异常，请检查网络后重试')
+      showError(t('errorNetwork'))
       setAnalyzing(false)
     }
-  }
+  }, [images, userName, gender, lang, navigate, showError, t])
 
   return (
     <PageLayout title="">

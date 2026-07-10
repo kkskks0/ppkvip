@@ -1,12 +1,19 @@
 import { Router, Request, Response } from 'express'
-import { PrismaClient } from '@prisma/client'
+import { prisma } from '../lib/prisma'
 import { signToken } from '../utils/jwt'
 
 const router = Router()
-const prisma = new PrismaClient()
 
 // Simple in-memory code store for dev (no SMS service)
+// 自动清理过期条目，每 5 分钟一次
 const codeStore = new Map<string, { code: string; expires: number }>()
+const CLEANUP_INTERVAL = 5 * 60 * 1000
+setInterval(() => {
+  const now = Date.now()
+  for (const [key, val] of codeStore) {
+    if (now > val.expires) codeStore.delete(key)
+  }
+}, CLEANUP_INTERVAL)
 
 // For development: any phone gets code "123456" automatically
 router.post('/send-code', async (req: Request, res: Response) => {

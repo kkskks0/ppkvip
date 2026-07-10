@@ -6,18 +6,24 @@ import HomeIcon from '@mui/icons-material/Home'
 import CameraAltIcon from '@mui/icons-material/CameraAlt'
 import HistoryIcon from '@mui/icons-material/History'
 import PersonIcon from '@mui/icons-material/Person'
-
-const tabs = [
-  { label: '首页', path: '/', icon: <HomeIcon /> },
-  { label: '分析', path: '/upload', icon: <CameraAltIcon /> },
-  { label: '报告', path: '/profile', icon: <HistoryIcon /> },
-  { label: '我的', path: '/profile', icon: <PersonIcon /> },
-]
+import { useLang } from '../../i18n/LangContext'
 
 export default function BottomNav() {
   const navigate = useNavigate()
   const location = useLocation()
-  const [value, setValue] = useState(tabs.findIndex((t) => t.path === location.pathname) || 0)
+  const { t } = useLang()
+  const [value, setValue] = useState(() => {
+    const path = location.pathname === '/profile' ? '/profile' : location.pathname
+    const idx = [{ path: '/' }, { path: '/upload' }, { path: '/profile' }, { path: '/profile' }].findIndex(t => t.path === path)
+    return idx >= 0 ? idx : 0
+  })
+
+  const tabs = [
+    { label: t('navHome'), path: '/', icon: <HomeIcon /> },
+    { label: t('navAnalyze'), path: '/upload', icon: <CameraAltIcon /> },
+    { label: t('navReports'), path: '/profile', icon: <HistoryIcon /> },
+    { label: t('navProfile'), path: '/profile', icon: <PersonIcon /> },
+  ]
 
   return (
     <BottomNavigation

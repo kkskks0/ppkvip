@@ -3,10 +3,12 @@
  * 支持高效数据检索、趋势分析、用户画像聚合
  */
 
-import { PrismaClient } from '@prisma/client'
+import { prisma } from '../lib/prisma'
 import { deserializeAnalysisData } from './validator'
 
-const prisma = new PrismaClient()
+// 简单TTL缓存：避免平台统计每次请求都全量计算
+const statsCache: { data: any; ttl: number } = { data: null, ttl: 0 }
+const STATS_CACHE_MS = 5 * 60 * 1000 // 5分钟
 
 // ===== 类型定义 =====
 export interface EnrichedReport {
@@ -282,6 +284,11 @@ export async function getPlatformStats(): Promise<{
   const shapeDistribution: Record<string, number> = {}
   const sevScores: string[] = []
 
+  // 缓存命中直接返回
+  if (statsCache.data && Date.now() < statsCache.ttl) {
+    return statsCache.data
+  }
+
   const recentReports = await prisma.report.findMany({
     where: { isDeleted: false },
     select: { analysis: true },
@@ -310,5 +317,8 @@ export async function getPlatformStats(): Promise<{
     sevScores.filter(s => s === 'Severe').length > sevScores.length * 0.3 ? '偏高' :
     sevScores.filter(s => s === 'Mild').length > sevScores.length * 0.5 ? '偏低' : '正常'
 
-  return { totalUsers, totalReports, colorDistribution, shapeDistribution, avgSeverity }
+  const result = { totalUsers, totalReports, colorDistribution, shapeDistribution, avgSeverity }
+  statsCache.data = result
+  statsCache.ttl = Date.now() + STATS_CACHE_MS
+  return result
 }

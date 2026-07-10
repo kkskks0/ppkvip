@@ -2,13 +2,13 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import path from 'path'
-import fs from 'fs'
+import crypto from 'crypto'
 import { fileURLToPath } from 'url'
 import { config } from './config'
 import { errorHandler } from './middleware/errorHandler'
-import { saveFile } from './services/storage'
-import { analyzeImage } from './services/ai'
-import { PrismaClient } from '@prisma/client'
+import { saveFile, readFileAsync } from './services/storage'
+import { quickAnalyze, deepAnalyze } from './services/ai'
+import { prisma, disconnectPrisma } from './lib/prisma'
 import multer from 'multer'
 import { logError, logWarn, categorizeError, getUserFriendlyMessage } from './utils/logger'
 import { v4 as uuid } from 'uuid'
@@ -18,6 +18,7 @@ import {
   validateAndNormalize,
   checkDataIntegrity,
   serializeAnalysisData,
+  validateTextureComposition,
   createHealthSnapshot,
   getEnrichedReports,
   getAggregatedStats,
@@ -27,13 +28,86 @@ import {
 } from './data'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const prisma = new PrismaClient()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
 
 const app = express()
 app.use(helmet({ contentSecurityPolicy: false }))
 app.use(cors())
-app.use(express.json())
+app.use(express.json({ limit: '20mb' }))
+
+const MAX_IMAGES = 5
+const QUICK_TIMEOUT_MS = 45_000   // Quick analysis: 45s total timeout
+const DEEP_TIMEOUT_MS = 150_000   // Deep analysis: 150s total timeout
+
+// Color calibration cache with TTL to prevent memory leaks
+// imageFingerprint → { color, shape, size, expiresAt }
+const CACHE_MAX_SIZE = 200
+const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
+const calibrationCache = new Map<string, { color: any; shape: any; size: any; expiresAt: number }>()
+
+/** Set calibration cache entry with automatic eviction */
+function setCalibrationCache(key: string, entry: { color: any; shape: any; size: any }) {
+  // Evict oldest entries if cache is full
+  while (calibrationCache.size >= CACHE_MAX_SIZE) {
+    const oldest = calibrationCache.keys().next().value
+    if (oldest !== undefined) calibrationCache.delete(oldest)
+  }
+  calibrationCache.set(key, { ...entry, expiresAt: Date.now() + CACHE_TTL_MS })
+}
+
+/** Get calibration cache entry (TTL-checked) */
+function getCalibrationCache(key: string): { color: any; shape: any; size: any } | undefined {
+  const entry = calibrationCache.get(key)
+  if (!entry) return undefined
+  if (Date.now() > entry.expiresAt) {
+    calibrationCache.delete(key)
+    return undefined
+  }
+  return { color: entry.color, shape: entry.shape, size: entry.size }
+}
+
+// Periodic cleanup of expired cache entries (every 5 min)
+const cacheCleanupInterval = setInterval(() => {
+  const now = Date.now()
+  for (const [key, entry] of calibrationCache) {
+    if (now > entry.expiresAt) calibrationCache.delete(key)
+  }
+}, 5 * 60 * 1000)
+
+// Clean up interval on process exit
+const cleanupCacheInterval = () => clearInterval(cacheCleanupInterval)
+process.on('exit', cleanupCacheInterval)
+
+// ==================== 通用辅助 ====================
+
+/** 获取或创建 direct 用户 */
+async function getOrCreateDirectUser() {
+  let user = await prisma.user.findFirst({ where: { phone: 'direct' } })
+  if (!user) {
+    user = await prisma.user.create({ data: { phone: 'direct', name: 'Direct User' } })
+  }
+  return user
+}
+
+/** 读取图片 Buffer 列表 */
+async function loadImageBuffers(
+  images: { imageKey: string }[] | undefined,
+  imageKey: string
+): Promise<{ buffer: Buffer; mimeType: string }[]> {
+  const uploadsDir = path.join(__dirname, '../uploads')
+  const imageList = (images && Array.isArray(images) && images.length > 0)
+    ? images.slice(0, MAX_IMAGES)
+    : [{ imageKey }]
+
+  const buffers: { buffer: Buffer; mimeType: string }[] = []
+  for (const img of imageList) {
+    const fp = path.resolve(uploadsDir, path.basename(img.imageKey))
+    const buf = await readFileAsync(fp)
+    const mime = img.imageKey.endsWith('.png') ? 'image/png' : 'image/jpeg'
+    buffers.push({ buffer: buf, mimeType: mime })
+  }
+  return buffers
+}
 
 // ==================== 基础 ====================
 
@@ -47,165 +121,361 @@ app.post('/api/upload-direct', upload.single('image'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ code: 2001, message: '请选择图片' })
   }
-  let uid: string
-  const user = await prisma.user.findFirst({ where: { phone: 'direct' } })
-  if (!user) {
-    const newUser = await prisma.user.create({ data: { phone: 'direct', name: 'Direct User' } })
-    uid = newUser.id
-  } else {
-    uid = user.id
-  }
-  const { filePath, fileName, previewUrl } = saveFile(req.file.buffer, req.file.originalname, uid)
-  res.json({ code: 0, data: { uploadId: fileName, previewUrl, filePath, userId: uid }, message: 'ok' })
+  const user = await getOrCreateDirectUser()
+  const { filePath, fileName, previewUrl } = saveFile(req.file.buffer, req.file.originalname, user.id)
+  res.json({ code: 0, data: { uploadId: fileName, previewUrl, filePath, userId: user.id }, message: 'ok' })
 })
 
-// ==================== 报告生成（默认锁定，仅返回前半段） ====================
+// ==================== 阶段1：免费快速分析 ====================
 
-app.post('/api/report-generate-direct', async (req, res) => {
-  const { imageUrl, imageKey, userName, hasCap, userId, gender, images, lang } = req.body
-  if (!imageUrl || !imageKey) {
-    return res.status(400).json({ code: 2001, message: '参数缺失' })
-  }
-
-  let uid = userId
-  if (!uid) {
-    let user = await prisma.user.findFirst({ where: { phone: 'direct' } })
-    if (!user) {
-      user = await prisma.user.create({ data: { phone: 'direct', name: 'Direct User' } })
+app.post('/api/quick-analysis', async (req, res) => {
+  const timeoutId = setTimeout(() => {
+    if (!res.headersSent) {
+      res.status(504).json({ code: 5001, message: '分析超时，请重试' })
     }
-    uid = user.id
-  }
-
-  // 判断是否是老用户（有多份报告）
-  let isReturningUser = false
-  try {
-    const reportCount = await prisma.report.count({ where: { userId: uid, isDeleted: false } })
-    isReturningUser = reportCount >= 1
-  } catch { /* ignore */ }
+  }, QUICK_TIMEOUT_MS)
 
   try {
-    // 创建报告记录（默认锁定）
+    const { imageUrl, imageKey, userName, hasCap, gender, images, lang } = req.body
+    if (!imageUrl || !imageKey) {
+      clearTimeout(timeoutId)
+      return res.status(400).json({ code: 2001, message: '参数缺失' })
+    }
+
+    const user = await getOrCreateDirectUser()
+
+    // 创建报告记录
     const report = await prisma.report.create({
-      data: { userId: uid, imageUrl, imageKey, reportType: 'SINGLE_PAY', isUnlocked: false },
+      data: {
+        userId: user.id, imageUrl, imageKey,
+        reportType: 'SINGLE_PAY', isUnlocked: false,
+        analysisType: 'PENDING',
+      },
     })
 
-    // 读取所有图片
-    const uploadsDir = path.join(__dirname, '../uploads')
-    const imageBuffers: { buffer: Buffer; mimeType: string }[] = []
-    if (images && Array.isArray(images) && images.length > 0) {
-      for (const img of images) {
-        const filePath = path.resolve(uploadsDir, path.basename(img.imageKey))
-        if (!fs.existsSync(filePath)) {
-          logWarn('ReportGenerate', `Image file not found: ${path.basename(img.imageKey)}`)
-          return res.status(400).json({ code: 2002, message: '图片文件不存在，请重新上传' })
-        }
-        const buf = fs.readFileSync(filePath)
-        const mime = img.imageKey.endsWith('.png') ? 'image/png' : 'image/jpeg'
-        imageBuffers.push({ buffer: buf, mimeType: mime })
-      }
-    } else {
-      const filePath = path.resolve(uploadsDir, path.basename(imageKey))
-      if (!fs.existsSync(filePath)) {
-        logWarn('ReportGenerate', `Image file not found: ${path.basename(imageKey)}`)
-        return res.status(400).json({ code: 2002, message: '图片文件不存在，请重新上传' })
-      }
-      const buf = fs.readFileSync(filePath)
-      const mime = imageKey.endsWith('.png') ? 'image/png' : 'image/jpeg'
-      imageBuffers.push({ buffer: buf, mimeType: mime })
+    // 读取图片
+    const imageBuffers = await loadImageBuffers(images, imageKey)
+    if (res.headersSent) return
+
+    // 颜色校准：计算图片指纹（采样前1KB + 尺寸信息）
+    const primaryBuf = imageBuffers[0]?.buffer
+    const colorFingerprint = primaryBuf
+      ? crypto.createHash('sha256').update(primaryBuf.slice(0, 1024)).update(String(primaryBuf.length)).digest('hex').slice(0, 16)
+      : ''
+
+    // Check calibration cache with TTL validation
+    const cached = colorFingerprint ? getCalibrationCache(colorFingerprint) : undefined
+    if (cached) {
+      console.log('[Quick] Hit calibration cache, reusing result')
     }
 
-    // AI 分析（传入老用户标志以使用积极语气）
-    const analysisText = await analyzeImage(imageBuffers, userName || '用户', hasCap || false, gender || '未填写', lang || 'zh', isReturningUser)
+    // 调用轻量AI（仅颜色/形态/尺寸）— 低算力，快速响应
+    console.log('[Quick] Starting quick analysis...')
+    const quickResult = await quickAnalyze(
+      imageBuffers,
+      userName || '用户', hasCap || false, gender || '未填写', lang || 'zh'
+    )
+    if (res.headersSent) return
 
-    // 数据解析 + Schema校验 + 规范化
-    const parseResult = parseAiJsonResponse(analysisText)
+    // 解析快速分析结果
+    const parseResult = parseAiJsonResponse(quickResult)
     if (!parseResult.data || !parseResult.repairable) {
-      logError('JSONParse', new Error(`parse failed: ${parseResult.errors.join('; ')}`))
-      return res.status(500).json({
-        code: 5001,
-        message: '图片识别失败，请确保图片清晰且包含肝胆排毒相关内容后重新上传',
-      })
+      clearTimeout(timeoutId)
+      logError('QuickParse', new Error(`parse failed: ${parseResult.errors.join('; ')}`))
+      return res.status(500).json({ code: 5001, message: '图片识别失败，请确保图片清晰后重新上传' })
     }
 
     const validation = validateAndNormalize(parseResult.data)
-    const integrity = checkDataIntegrity(validation.normalizedData)
-    if (!integrity.passed) {
-      logWarn('Integrity', `checks failed: ${integrity.checks.filter(c => !c.passed).map(c => c.name).join(', ')}`)
-    }
 
-    // 注入报告元数据
+    // 注入元数据
     validation.normalizedData.reportMeta = {
       userName: userName || '用户',
       gender: gender || '未填写',
       analysisTime: new Date().toLocaleString('zh-CN'),
       hasReference: hasCap,
       sampleImage: imageUrl,
-      isReturningUser,
-      validationInfo: {
-        valid: validation.valid,
-        warnings: validation.warnings,
-        integrityChecks: integrity.checks,
-      },
+      analysisStage: 'QUICK',
     }
 
-    // 序列化并存储
-    const serialized = serializeAnalysisData(validation.normalizedData)
+    // 存储快速分析结果
+    const quickSerialized = serializeAnalysisData(validation.normalizedData)
     await prisma.report.update({
       where: { id: report.id },
-      data: { analysis: serialized, analysisVersion: validation.schemaVersion, isUnlocked: false },
+      data: {
+        quickAnalysis: quickSerialized,
+        analysisType: 'QUICK',
+      },
     })
 
-    // 创建健康快照
-    try {
-      await createHealthSnapshot(report.id)
-    } catch (snapErr) {
-      logWarn('HealthSnapshot', 'creation failed (non-critical)')
+    // Write calibration cache with TTL (reuse results for same image)
+    if (colorFingerprint) {
+      setCalibrationCache(colorFingerprint, {
+        color: validation.normalizedData.color,
+        shape: validation.normalizedData.shape,
+        size: validation.normalizedData.size,
+      })
     }
 
-    // 返回报告ID和锁定状态
+    clearTimeout(timeoutId)
     res.json({
       code: 0,
       data: {
         reportId: report.id,
-        status: 'COMPLETED',
+        status: 'QUICK_COMPLETED',
         isUnlocked: false,
-        isReturningUser,
+        colorFingerprint,
+        calibrated: cached ? true : false,
+        // 返回快速分析的摘要供前端立即展示
+        quickSummary: {
+          color: validation.normalizedData.color,
+          shape: validation.normalizedData.shape,
+          size: validation.normalizedData.size,
+        },
       },
       message: 'ok',
     })
   } catch (err) {
+    clearTimeout(timeoutId)
+    if (res.headersSent) return
     const category = categorizeError(err)
     const userMsg = getUserFriendlyMessage(category)
-    logError('ReportGenerate', err)
+    logError('QuickAnalysis', err)
     res.status(500).json({ code: 5001, message: userMsg })
   }
 })
 
-// ==================== 报告查询（返回锁定/解锁状态+完整/部分数据） ====================
+// ==================== 阶段2：付费深度分析 ====================
+
+app.post('/api/report/:id/deep-analysis', async (req, res) => {
+  const timeoutId = setTimeout(() => {
+    if (!res.headersSent) {
+      res.status(504).json({ code: 5001, message: '深度分析超时，请稍后重试' })
+    }
+  }, DEEP_TIMEOUT_MS)
+
+  try {
+    const reportId = req.params.id
+    const report = await prisma.report.findFirst({ where: { id: reportId, isDeleted: false } })
+    if (!report) {
+      clearTimeout(timeoutId)
+      return res.status(404).json({ code: 3002, message: '报告不存在' })
+    }
+    if (report.analysisType === 'DEEP') {
+      clearTimeout(timeoutId)
+      return res.json({ code: 0, data: { reportId, status: 'ALREADY_DEEP', isUnlocked: true }, message: '已存在深度分析' })
+    }
+
+    // 提取快速分析上下文
+    let quickContext = ''
+    try {
+      const quick = JSON.parse(report.quickAnalysis as string || '{}')
+      if (quick.color?.name && quick.shape?.type && quick.size?.category) {
+        quickContext = `初步判定：颜色${quick.color.name}（${quick.color.interpretation || ''}），形态${quick.shape.type}（${quick.shape.significance || ''}），尺寸${quick.size.category}（${quick.size.estimatedRangeMm || ''}）`
+      }
+    } catch { /* ignore */ }
+
+    // 获取用户信息
+    const user = await prisma.user.findUnique({ where: { id: report.userId } })
+
+    // 读取图片
+    const imageBuffers = await loadImageBuffers(undefined, report.imageKey)
+    if (res.headersSent) return
+
+    // 读取报告元数据
+    let meta: any = {}
+    try { meta = JSON.parse(report.quickAnalysis as string || '{}')?.reportMeta || {} } catch { /* */ }
+
+    console.log('[Deep] Starting deep analysis...')
+    const deepResult = await deepAnalyze(
+      imageBuffers,
+      meta.userName || user?.name || '用户',
+      meta.hasReference || false,
+      meta.gender || user?.gender || '未填写',
+      'zh',
+      quickContext
+    )
+    if (res.headersSent) return
+
+    // 解析深度分析
+    const parseResult = parseAiJsonResponse(deepResult)
+    if (!parseResult.data || !parseResult.repairable) {
+      clearTimeout(timeoutId)
+      logError('DeepParse', new Error(`parse failed: ${parseResult.errors.join('; ')}`))
+      return res.status(500).json({ code: 5001, message: '深度分析失败，请稍后重试' })
+    }
+
+    const validation = validateAndNormalize(parseResult.data)
+    const integrity = checkDataIntegrity(validation.normalizedData)
+    if (!integrity.passed) {
+      logWarn('DeepIntegrity', `checks failed: ${integrity.checks.filter(c => !c.passed).map(c => c.name).join(', ')}`)
+    }
+
+    // 质地/成分 知识库验证（硬性约束：不在库中则标记无效）
+    const tcValidation = validateTextureComposition(validation.normalizedData)
+    validation.normalizedData._textureValid = tcValidation.texture.valid
+    validation.normalizedData._compositionValid = tcValidation.composition.valid
+    if (!tcValidation.texture.valid) {
+      logWarn('DeepTC', 'Texture type not in knowledge base, will hide on frontend')
+    }
+    if (!tcValidation.composition.valid) {
+      logWarn('DeepTC', 'Composition type not in knowledge base, will hide on frontend')
+    }
+    // 用知识库增强数据替换
+    if (tcValidation.texture.data) {
+      validation.normalizedData.texture = tcValidation.texture.data
+    }
+    if (tcValidation.composition.data) {
+      validation.normalizedData.composition = tcValidation.composition.data
+    }
+
+    // 注入元数据
+    validation.normalizedData.reportMeta = {
+      ...meta,
+      analysisTime: new Date().toLocaleString('zh-CN'),
+      analysisStage: 'DEEP',
+      validationInfo: {
+        valid: validation.valid,
+        warnings: validation.warnings,
+        integrityChecks: integrity.checks,
+        textureValid: tcValidation.texture.valid,
+        compositionValid: tcValidation.composition.valid,
+      },
+    }
+
+    // 存储深度分析结果
+    const serialized = serializeAnalysisData(validation.normalizedData)
+    await prisma.report.update({
+      where: { id: reportId },
+      data: {
+        analysis: serialized,
+        analysisVersion: validation.schemaVersion,
+        analysisType: 'DEEP',
+      },
+    })
+
+    // 异步健康快照
+    createHealthSnapshot(reportId).catch(() => {})
+
+    clearTimeout(timeoutId)
+    res.json({
+      code: 0,
+      data: {
+        reportId,
+        status: 'DEEP_COMPLETED',
+        isUnlocked: true,
+      },
+      message: '深度分析完成',
+    })
+  } catch (err) {
+    clearTimeout(timeoutId)
+    if (res.headersSent) return
+    const category = categorizeError(err)
+    const userMsg = getUserFriendlyMessage(category)
+    logError('DeepAnalysis', err)
+    res.status(500).json({ code: 5001, message: userMsg })
+  }
+})
+
+// ==================== 向后兼容：旧版一键分析 ====================
+
+app.post('/api/report-generate-direct', async (req, res) => {
+  const timeoutId = setTimeout(() => {
+    if (!res.headersSent) {
+      res.status(504).json({ code: 5001, message: '图片分析超时，请重试' })
+    }
+  }, QUICK_TIMEOUT_MS)
+
+  try {
+    const { imageUrl, imageKey, userName, hasCap, userId, gender, images, lang } = req.body
+    if (!imageUrl || !imageKey) {
+      clearTimeout(timeoutId)
+      return res.status(400).json({ code: 2001, message: '参数缺失' })
+    }
+
+    const user = await getOrCreateDirectUser()
+
+    const report = await prisma.report.create({
+      data: { userId: user.id, imageUrl, imageKey, reportType: 'SINGLE_PAY', isUnlocked: false, analysisType: 'PENDING' },
+    })
+
+    const imageBuffers = await loadImageBuffers(images, imageKey)
+    if (res.headersSent) return
+
+    // 快速分析
+    const quickResult = await quickAnalyze(imageBuffers, userName || '用户', hasCap || false, gender || '未填写', lang || 'zh')
+    if (res.headersSent) return
+
+    const parseResult = parseAiJsonResponse(quickResult)
+    if (!parseResult.data || !parseResult.repairable) {
+      clearTimeout(timeoutId)
+      return res.status(500).json({ code: 5001, message: '图片识别失败' })
+    }
+
+    const validation = validateAndNormalize(parseResult.data)
+    validation.normalizedData.reportMeta = {
+      userName: userName || '用户', gender: gender || '未填写',
+      analysisTime: new Date().toLocaleString('zh-CN'),
+      hasReference: hasCap, sampleImage: imageUrl,
+      analysisStage: 'QUICK',
+    }
+
+    const quickSerialized = serializeAnalysisData(validation.normalizedData)
+    await prisma.report.update({
+      where: { id: report.id },
+      data: { quickAnalysis: quickSerialized, analysisType: 'QUICK' },
+    })
+
+    clearTimeout(timeoutId)
+    res.json({
+      code: 0,
+      data: { reportId: report.id, status: 'COMPLETED', isUnlocked: false },
+      message: 'ok',
+    })
+  } catch (err) {
+    clearTimeout(timeoutId)
+    if (res.headersSent) return
+    logError('ReportGenerate', err)
+    res.status(500).json({ code: 5001, message: getUserFriendlyMessage(categorizeError(err)) })
+  }
+})
+
+// ==================== 报告查询 ====================
 
 app.get('/api/report-direct/:id', async (req, res) => {
   const report = await prisma.report.findFirst({ where: { id: req.params.id } })
   if (!report) return res.status(404).json({ code: 3002, message: '报告不存在' })
   if (report.isDeleted) return res.status(404).json({ code: 3002, message: '报告已删除' })
 
-  // 反序列化分析数据
+  // 获取数据源：深度分析 > 快速分析
   let analysis: any = {}
+  let analysisType = report.analysisType
+
   try {
-    analysis = JSON.parse(report.analysis as string)
-  } catch {
-    analysis = {}
+    if (report.analysisType === 'DEEP') {
+      analysis = JSON.parse(report.analysis as string || '{}')
+    } else if (report.analysisType === 'QUICK') {
+      analysis = JSON.parse(report.quickAnalysis as string || '{}')
+    }
+  } catch { analysis = {} }
+
+  // 如果有 reportMeta 数据（快速分析），补充元数据
+  let quickMeta: any = {}
+  try { quickMeta = JSON.parse(report.quickAnalysis as string || '{}')?.reportMeta || {} } catch { /* */ }
+
+  if (!analysis.reportMeta) {
+    analysis.reportMeta = quickMeta
   }
 
-  // 如果报告未解锁，只返回前半段（概览+颜色+形状+大小），后面的内容截断
-  if (!report.isUnlocked) {
-    const publicPart: any = {
-      reportMeta: analysis.reportMeta,
-      color: analysis.color,
-      shape: analysis.shape,
-      size: analysis.size,
-      // 后半段标记为空，前端显示锁定UI
-      _locked: true,
-    }
+  // 快速分析阶段：返回颜色/形态/尺寸/质地/成分（免费）+ 锁定标记
+  if (analysisType === 'QUICK' || analysisType === 'PENDING') {
+    // 对已存储的质地/成分数据进行知识库验证
+    const tcValid = analysis.texture?.type || analysis.composition?.type
+      ? validateTextureComposition(analysis)
+      : { texture: { valid: false, data: null, dbEntry: null }, composition: { valid: false, data: null, dbEntry: null } }
+
+    const textureData = tcValid.texture.valid ? (tcValid.texture.data || analysis.texture) : undefined
+    const compositionData = tcValid.composition.valid ? (tcValid.composition.data || analysis.composition) : undefined
+
     res.json({
       code: 0,
       data: {
@@ -213,14 +483,41 @@ app.get('/api/report-direct/:id', async (req, res) => {
         userId: report.userId,
         imageUrl: report.imageUrl,
         createdAt: report.createdAt,
-        isUnlocked: false,
-        analysis: publicPart,
-        analysisVersion: report.analysisVersion,
+        isUnlocked: report.isUnlocked,
+        analysisType,
+        analysis: {
+          reportMeta: analysis.reportMeta,
+          color: analysis.color,
+          shape: analysis.shape,
+          size: analysis.size,
+          // 质地与成分免费展示 — 仅当数据在知识库中时才返回
+          texture: textureData,
+          composition: compositionData,
+          _textureValid: tcValid.texture.valid,
+          _compositionValid: tcValid.composition.valid,
+          _locked: true,
+        },
       },
       message: 'ok',
     })
   } else {
-    // 完整报告
+    // 深度分析完成：返回全部
+    // 对质地/成分进行知识库验证
+    const tcValid = analysis.texture?.type || analysis.composition?.type
+      ? validateTextureComposition(analysis)
+      : { texture: { valid: false, data: null, dbEntry: null }, composition: { valid: false, data: null, dbEntry: null } }
+
+    // 用验证后的数据增强（如果已有 _textureValid 标记，以存储时的验证为准）
+    const finalAnalysis = { ...analysis }
+    if (tcValid.texture.valid && tcValid.texture.data && !analysis._textureValid) {
+      finalAnalysis.texture = tcValid.texture.data
+    }
+    if (tcValid.composition.valid && tcValid.composition.data && !analysis._compositionValid) {
+      finalAnalysis.composition = tcValid.composition.data
+    }
+    finalAnalysis._textureValid = analysis._textureValid ?? tcValid.texture.valid
+    finalAnalysis._compositionValid = analysis._compositionValid ?? tcValid.composition.valid
+
     res.json({
       code: 0,
       data: {
@@ -230,7 +527,8 @@ app.get('/api/report-direct/:id', async (req, res) => {
         createdAt: report.createdAt,
         isUnlocked: true,
         unlockType: report.unlockType,
-        analysis,
+        analysisType: 'DEEP',
+        analysis: finalAnalysis,
         analysisVersion: report.analysisVersion,
       },
       message: 'ok',
@@ -238,10 +536,10 @@ app.get('/api/report-direct/:id', async (req, res) => {
   }
 })
 
-// ==================== 报告解锁 ====================
+// ==================== 报告解锁（触发深度分析） ====================
 
 app.post('/api/report/:id/unlock', async (req, res) => {
-  const { unlockType, userId } = req.body // unlockType: 'PER_REPORT' | 'ANNUAL'
+  const { unlockType, userId } = req.body
   const reportId = req.params.id
 
   const report = await prisma.report.findFirst({ where: { id: reportId, isDeleted: false } })
@@ -249,74 +547,68 @@ app.post('/api/report/:id/unlock', async (req, res) => {
   if (report.isUnlocked) return res.status(400).json({ code: 3003, message: '报告已解锁' })
 
   try {
+    // 先标记解锁
+    await prisma.report.update({
+      where: { id: reportId },
+      data: { isUnlocked: true, unlockedAt: new Date(), unlockType },
+    })
+
     if (unlockType === 'ANNUAL') {
-      // 年费会员：解锁该用户所有报告
       const uid = userId || report.userId
       await prisma.report.updateMany({
         where: { userId: uid, isDeleted: false },
         data: { isUnlocked: true, unlockedAt: new Date(), unlockType: 'ANNUAL' },
       })
-      // 更新用户会员状态
       const expireAt = new Date()
       expireAt.setFullYear(expireAt.getFullYear() + 1)
       await prisma.user.update({
         where: { id: uid },
         data: { memberType: 'ANNUAL', memberExpireAt: expireAt },
       })
-    } else {
-      // 按次付费：仅解锁当前报告
-      await prisma.report.update({
-        where: { id: reportId },
-        data: { isUnlocked: true, unlockedAt: new Date(), unlockType: 'PER_REPORT' },
-      })
     }
 
-    res.json({ code: 0, data: { reportId, isUnlocked: true, unlockType }, message: '解锁成功' })
+    // 如果尚未进行深度分析，返回提示前端调用 deep-analysis
+    const needsDeepAnalysis = report.analysisType !== 'DEEP'
+
+    res.json({
+      code: 0,
+      data: {
+        reportId,
+        isUnlocked: true,
+        unlockType,
+        needsDeepAnalysis,
+      },
+      message: needsDeepAnalysis ? '解锁成功，即将生成深度报告' : '解锁成功',
+    })
   } catch (err) {
     logError('ReportUnlock', err)
     res.status(500).json({ code: 5001, message: '解锁失败，请稍后重试' })
   }
 })
 
-// ==================== 报告删除 ====================
+// ==================== 报告删除（永久硬删除，不可恢复） ====================
 
 app.delete('/api/report-direct/:id', async (req, res) => {
-  const report = await prisma.report.findFirst({ where: { id: req.params.id } })
+  const report = await prisma.report.findFirst({ where: { id: req.params.id, isDeleted: false } })
   if (!report) return res.status(404).json({ code: 3002, message: '报告不存在' })
 
   try {
-    // 软删除：标记 isDeleted
-    await prisma.report.update({
-      where: { id: req.params.id },
-      data: { isDeleted: true, deletedAt: new Date() },
-    })
-    res.json({ code: 0, message: '报告已删除' })
+    // 事务：先清理关联的健康快照，再永久删除报告
+    await prisma.$transaction([
+      prisma.healthSnapshot.deleteMany({ where: { reportId: req.params.id } }),
+      prisma.report.delete({ where: { id: req.params.id } }),
+    ])
+    res.json({ code: 0, message: '报告已永久删除' })
   } catch (err) {
     logError('ReportDelete', err)
     res.status(500).json({ code: 5001, message: '删除失败，请稍后重试' })
   }
 })
 
-// ==================== 用户列表（按手机号查询） ====================
+// ==================== 用户相关 ====================
 
-app.get('/api/user/list', async (req, res) => {
-  try {
-    const users = await prisma.user.findMany({
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true, name: true, phone: true, gender: true, age: true,
-        memberType: true, memberExpireAt: true, createdAt: true,
-        _count: { select: { reports: true } },
-      },
-    })
-    res.json({ code: 0, data: users, message: 'ok' })
-  } catch (err) {
-    logError('UserList', err)
-    res.status(500).json({ code: 5001, message: '查询用户列表失败' })
-  }
-})
-
-// ==================== 用户报告列表 ====================
+// User list endpoint REMOVED to prevent user enumeration and data leakage.
+// Reports are now isolated per user — each user only sees their own records.
 
 app.get('/api/user/:userId/reports', async (req, res) => {
   try {
@@ -325,7 +617,7 @@ app.get('/api/user/:userId/reports', async (req, res) => {
       orderBy: { createdAt: 'desc' },
       select: {
         id: true, imageUrl: true, isUnlocked: true, unlockType: true,
-        reportType: true, createdAt: true,
+        reportType: true, analysisType: true, createdAt: true,
       },
     })
     res.json({ code: 0, data: reports, message: 'ok' })
@@ -335,9 +627,6 @@ app.get('/api/user/:userId/reports', async (req, res) => {
   }
 })
 
-// ==================== 用户档案 CRUD ====================
-
-// 获取或创建用户档案
 app.get('/api/user/:userId/profile', async (req, res) => {
   try {
     let profile = await prisma.customerProfile.findFirst({ where: { userId: req.params.userId } })
@@ -345,18 +634,22 @@ app.get('/api/user/:userId/profile', async (req, res) => {
     if (!user) return res.status(404).json({ code: 3002, message: '用户不存在' })
 
     if (!profile) {
-      profile = await prisma.customerProfile.create({
-        data: { userId: req.params.userId },
-      })
+      profile = await prisma.customerProfile.create({ data: { userId: req.params.userId } })
     }
 
+    // Only expose non-sensitive fields — no birthday, email, address, emergencyContact
     res.json({
       code: 0,
       data: {
-        profile,
+        profile: {
+          id: profile.id,
+          medicalHistory: profile.medicalHistory,
+          dietaryPreference: profile.dietaryPreference,
+          notes: profile.notes,
+        },
         user: {
-          id: user.id, name: user.name, phone: user.phone,
-          gender: user.gender, age: user.age, birthday: user.birthday,
+          id: user.id, name: user.name,
+          gender: user.gender, age: user.age,
           healthGoal: user.healthGoal,
           memberType: user.memberType, memberExpireAt: user.memberExpireAt,
         },
@@ -369,40 +662,31 @@ app.get('/api/user/:userId/profile', async (req, res) => {
   }
 })
 
-// 更新用户档案
 app.put('/api/user/:userId/profile', async (req, res) => {
   const userId = req.params.userId
-  const { name, age, gender, birthday, healthGoal, email, address, emergencyContact, medicalHistory, dietaryPreference, notes } = req.body
+  // Only accept non-sensitive fields — birthday/email/address/emergencyContact removed
+  const { name, age, gender, healthGoal, medicalHistory, dietaryPreference, notes } = req.body
 
   try {
-    // 更新用户基本信息
     await prisma.user.update({
       where: { id: userId },
       data: {
         name: name !== undefined ? name : undefined,
         age: age !== undefined ? age : undefined,
         gender: gender !== undefined ? gender : undefined,
-        birthday: birthday !== undefined ? birthday : undefined,
         healthGoal: healthGoal !== undefined ? healthGoal : undefined,
       },
     })
 
-    // 更新客户档案
     let profile = await prisma.customerProfile.findFirst({ where: { userId } })
     if (profile) {
       profile = await prisma.customerProfile.update({
         where: { id: profile.id },
-        data: {
-          email, address, emergencyContact, medicalHistory,
-          dietaryPreference, notes,
-        },
+        data: { medicalHistory, dietaryPreference, notes },
       })
     } else {
       profile = await prisma.customerProfile.create({
-        data: {
-          userId, email, address, emergencyContact,
-          medicalHistory, dietaryPreference, notes,
-        },
+        data: { userId, medicalHistory, dietaryPreference, notes },
       })
     }
 
@@ -417,41 +701,24 @@ app.put('/api/user/:userId/profile', async (req, res) => {
 
 app.post('/api/payment/create', async (req, res) => {
   const { productType, userId, reportId } = req.body
-  // PER_REPORT: 9.9元  ANNUAL_MEMBER: 59元
   const amount = productType === 'ANNUAL_MEMBER' ? 59 : 9.9
 
   try {
     let uid = userId
-    if (!uid) {
-      const user = await prisma.user.findFirst({ where: { phone: 'direct' } })
-      uid = user?.id || (await prisma.user.create({ data: { phone: 'direct', name: 'Direct User' } })).id
-    }
+    if (!uid) uid = (await getOrCreateDirectUser()).id
 
     const tradeNo = `PPK${Date.now()}${uuid().slice(0, 8)}`
     const payment = await prisma.payment.create({
-      data: {
-        userId: uid, amount, productType, tradeNo,
-        reportId: productType === 'PER_REPORT' ? reportId : null,
-        status: 'PENDING',
-      },
+      data: { userId: uid, amount, productType, tradeNo, reportId: productType === 'PER_REPORT' ? reportId : null, status: 'PENDING' },
     })
 
-    // Demo 模式（无微信支付配置时自动模拟支付）
     if (!config.wechat.appId || !config.wechat.privateKey) {
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: { status: 'PAID', paidAt: new Date() },
-      })
-
+      await prisma.payment.update({ where: { id: payment.id }, data: { status: 'PAID', paidAt: new Date() } })
       if (productType === 'ANNUAL_MEMBER') {
         const expireAt = new Date()
         expireAt.setFullYear(expireAt.getFullYear() + 1)
-        await prisma.user.update({
-          where: { id: uid },
-          data: { memberType: 'ANNUAL', memberExpireAt: expireAt },
-        })
+        await prisma.user.update({ where: { id: uid }, data: { memberType: 'ANNUAL', memberExpireAt: expireAt } })
       }
-
       return res.json({
         code: 0,
         data: { paymentId: payment.id, tradeNo, payType: 'demo', demoMode: true, amount, productType },
@@ -459,28 +726,16 @@ app.post('/api/payment/create', async (req, res) => {
       })
     }
 
-    // 真实微信支付下单
     try {
       const result = await createOrder(uid, productType, amount, 'native', tradeNo)
       if (result.payUrl) {
-        return res.json({
-          code: 0,
-          data: { paymentId: payment.id, tradeNo: result.tradeNo, payType: 'h5', payUrl: result.payUrl, amount, productType },
-          message: 'ok',
-        })
+        return res.json({ code: 0, data: { paymentId: payment.id, tradeNo: result.tradeNo, payType: 'h5', payUrl: result.payUrl, amount, productType }, message: 'ok' })
       }
       if (result.codeUrl) {
-        return res.json({
-          code: 0,
-          data: { paymentId: payment.id, tradeNo: result.tradeNo, payType: 'native', codeUrl: result.codeUrl, amount, productType },
-          message: 'ok',
-        })
+        return res.json({ code: 0, data: { paymentId: payment.id, tradeNo: result.tradeNo, payType: 'native', codeUrl: result.codeUrl, amount, productType }, message: 'ok' })
       }
-    } catch (payErr) {
-      logError('WechatPay', payErr)
-    }
+    } catch (payErr) { logError('WechatPay', payErr) }
 
-    // 微信支付失败，降级到演示模式
     return res.json({
       code: 0,
       data: { paymentId: payment.id, tradeNo, payType: 'demo', demoMode: true, amount, productType },
@@ -498,40 +753,28 @@ app.get('/api/payment/:id/status', async (req, res) => {
   res.json({ code: 0, data: { status: payment.status, tradeNo: payment.tradeNo }, message: 'ok' })
 })
 
-// 微信支付异步回调
 app.post('/api/payment/notify', async (req, res) => {
   try {
     const success = await handleWechatNotify(req.headers as Record<string, string>, req.body)
-    if (success) {
-      res.status(200).json({ code: 'SUCCESS', message: 'ok' })
-    } else {
-      res.status(200).json({ code: 'FAIL', message: '处理失败' })
-    }
+    res.status(200).json({ code: success ? 'SUCCESS' : 'FAIL', message: success ? 'ok' : '处理失败' })
   } catch (err) {
     logError('WechatNotify', err)
     res.status(500).json({ code: 'FAIL', message: '服务异常' })
   }
 })
 
-// 演示模式模拟支付（本地测试用）
 app.post('/api/payment/demo-pay', async (req, res) => {
   const { tradeNo } = req.body
   try {
     const payment = await prisma.payment.findFirst({ where: { tradeNo } })
     if (!payment) return res.status(404).json({ code: 4001, message: '订单不存在' })
 
-    await prisma.payment.update({
-      where: { id: payment.id },
-      data: { status: 'PAID', paidAt: new Date() },
-    })
+    await prisma.payment.update({ where: { id: payment.id }, data: { status: 'PAID', paidAt: new Date() } })
 
     if (payment.productType === 'ANNUAL_MEMBER') {
       const expireAt = new Date()
       expireAt.setFullYear(expireAt.getFullYear() + 1)
-      await prisma.user.update({
-        where: { id: payment.userId },
-        data: { memberType: 'ANNUAL', memberExpireAt: expireAt },
-      })
+      await prisma.user.update({ where: { id: payment.userId }, data: { memberType: 'ANNUAL', memberExpireAt: expireAt } })
     }
 
     res.json({ code: 0, data: { tradeNo, status: 'PAID' }, message: '模拟支付成功' })
@@ -549,7 +792,7 @@ app.get('/api/data/stats/:userId', async (req, res) => {
     res.json({ code: 0, data: stats, message: 'ok' })
   } catch (err) {
     logError('StatsQuery', err)
-    res.status(500).json({ code: 5002, message: '统计数据查询失败，请稍后重试' })
+    res.status(500).json({ code: 5002, message: '统计数据查询失败' })
   }
 })
 
@@ -559,7 +802,7 @@ app.get('/api/data/trend/:userId', async (req, res) => {
     res.json({ code: 0, data: trend, message: 'ok' })
   } catch (err) {
     logError('TrendAnalysis', err)
-    res.status(500).json({ code: 5003, message: '趋势分析失败，请稍后重试' })
+    res.status(500).json({ code: 5003, message: '趋势分析失败' })
   }
 })
 
@@ -569,21 +812,19 @@ app.get('/api/data/timeline/:userId', async (req, res) => {
     res.json({ code: 0, data: timeline, message: 'ok' })
   } catch (err) {
     logError('TimelineQuery', err)
-    res.status(500).json({ code: 5004, message: '时间线查询失败，请稍后重试' })
+    res.status(500).json({ code: 5004, message: '时间线查询失败' })
   }
 })
 
 app.get('/api/data/reports/:userId', async (req, res) => {
   try {
     const reports = await getEnrichedReports(
-      req.params.userId,
-      Number(req.query.limit) || 20,
-      Number(req.query.offset) || 0
+      req.params.userId, Number(req.query.limit) || 20, Number(req.query.offset) || 0
     )
     res.json({ code: 0, data: reports, message: 'ok' })
   } catch (err) {
     logError('ReportsQuery', err)
-    res.status(500).json({ code: 5005, message: '报告列表查询失败，请稍后重试' })
+    res.status(500).json({ code: 5005, message: '报告列表查询失败' })
   }
 })
 
@@ -593,47 +834,38 @@ app.get('/api/data/platform-stats', async (_req, res) => {
     res.json({ code: 0, data: stats, message: 'ok' })
   } catch (err) {
     logError('PlatformStats', err)
-    res.status(500).json({ code: 5006, message: '平台统计查询失败，请稍后重试' })
+    res.status(500).json({ code: 5006, message: '平台统计查询失败' })
   }
 })
 
-// ==================== 后台：客户档案导出 ====================
-
 app.get('/api/admin/customers/export', async (req, res) => {
   try {
+    const page = Math.max(1, Number(req.query.page) || 1)
+    const pageSize = Math.min(Number(req.query.pageSize) || 500, 1000)
     const users = await prisma.user.findMany({
       include: {
         profiles: true,
-        reports: { where: { isDeleted: false }, orderBy: { createdAt: 'desc' } },
-        payments: { where: { status: 'PAID' } },
+        reports: { where: { isDeleted: false }, orderBy: { createdAt: 'desc' }, take: 50 },
+        payments: { where: { status: 'PAID' }, take: 50 },
       },
       orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
     })
 
-    // 构建导出数据
     const exportData = users.map(u => ({
-      用户ID: u.id,
-      姓名: u.name || '',
-      手机号: u.phone,
-      性别: u.gender || '',
-      年龄: u.age || '',
-      生日: u.birthday || '',
-      健康目标: u.healthGoal || '',
-      会员类型: u.memberType,
+      用户ID: u.id, 姓名: u.name || '',
+      性别: u.gender || '', 年龄: u.age || '',
+      健康目标: u.healthGoal || '', 会员类型: u.memberType,
       会员到期: u.memberExpireAt?.toISOString() || '',
-      邮箱: u.profiles[0]?.email || '',
-      地址: u.profiles[0]?.address || '',
-      紧急联系人: u.profiles[0]?.emergencyContact || '',
       既往病史: u.profiles[0]?.medicalHistory || '',
       饮食偏好: u.profiles[0]?.dietaryPreference || '',
       备注: u.profiles[0]?.notes || '',
-      报告数量: u.reports.length,
-      已支付订单数: u.payments.length,
+      报告数量: u.reports.length, 已支付订单数: u.payments.length,
       总支付金额: u.payments.reduce((s, p) => s + p.amount, 0),
       注册时间: u.createdAt.toISOString(),
     }))
 
-    // 返回 CSV 或 JSON
     const format = (req.query.format as string) || 'json'
     if (format === 'csv') {
       const headers = Object.keys(exportData[0] || {})
@@ -661,16 +893,26 @@ app.use('/uploads', express.static(uploadsPath))
 
 const distPath = path.join(__dirname, '../../dist')
 app.use('/ppk', express.static(distPath))
-app.get('/ppk', (_req, res) => {
-  res.sendFile(path.join(distPath, 'index.html'))
-})
-app.get('/ppk/*', (_req, res) => {
-  res.sendFile(path.join(distPath, 'index.html'))
-})
+app.get('/ppk', (_req, res) => res.sendFile(path.join(distPath, 'index.html')))
+app.get('/ppk/*', (_req, res) => res.sendFile(path.join(distPath, 'index.html')))
 
 app.use(errorHandler)
 
-app.listen(config.port, () => {
+const server = app.listen(config.port, () => {
   console.log(`Server running on port ${config.port}`)
-  console.log('Features: Report lock/unlock | Per-report ¥9.9 / Annual ¥59 | Customer profile | Report delete | CSV export')
+  console.log('Features: Two-stage analysis | Quick(free) + Deep(paid) | Per-report ¥9.9 / Annual ¥59')
 })
+
+async function gracefulShutdown(signal: string) {
+  console.log(`\n[Shutdown] Received ${signal}, gracefully shutting down...`)
+  cleanupCacheInterval()
+  server.close(async () => {
+    await disconnectPrisma()
+    console.log('[Shutdown] Done.')
+    process.exit(0)
+  })
+  setTimeout(() => { console.log('[Shutdown] Forced exit.'); process.exit(1) }, 10000)
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
+process.on('SIGINT', () => gracefulShutdown('SIGINT'))
