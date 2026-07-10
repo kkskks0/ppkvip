@@ -1,5 +1,5 @@
 # 排排看 - 肝胆净化AI分析系统
-FROM node:20-slim
+FROM node:20-bullseye-slim
 
 WORKDIR /app
 
@@ -12,7 +12,10 @@ COPY server/src/ ./server/src/
 COPY server/tsconfig.json ./server/
 COPY server/.env ./server/
 
-# Generate Prisma client and copy existing database
+# Copy database to Prisma's expected location (./dev.db relative to schema)
+COPY server/dev.db ./server/prisma/dev.db
+
+# Generate Prisma client
 RUN cd server && npx prisma generate
 
 # Copy frontend dist (pre-built locally)
@@ -21,5 +24,5 @@ COPY dist/ ./dist/
 # Expose port
 EXPOSE 3001
 
-# Start
-CMD ["npx", "tsx", "server/src/index.ts"]
+# Start - tsx is installed in server/node_modules
+CMD ["./server/node_modules/.bin/tsx", "server/src/index.ts"]
