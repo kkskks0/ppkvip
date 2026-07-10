@@ -1,0 +1,161 @@
+classDiagram
+    class User {
+        +String id PK
+        +String phone UK
+        +String name?
+        +Int age?
+        +MemberType memberType
+        +DateTime memberExpireAt?
+        +DateTime createdAt
+        +DateTime updatedAt
+    }
+
+    class Report {
+        +String id PK
+        +String userId FK
+        +String imageUrl
+        +String imageKey
+        +Json analysis
+        +ReportType reportType
+        +Boolean isDeleted
+        +DateTime deletedAt?
+        +DateTime createdAt
+        +DateTime expiresAt?
+    }
+
+    class Payment {
+        +String id PK
+        +String userId FK
+        +Float amount
+        +ProductType productType
+        +String tradeNo UK
+        +String prepayId?
+        +PaymentStatus status
+        +DateTime createdAt
+        +DateTime paidAt?
+    }
+
+    class AnalysisResult {
+        +ColorInfo color
+        +ShapeInfo shape
+        +SizeInfo size
+        +TextureInfo texture
+        +CompositionInfo composition
+        +PatternInfo pattern
+        +QuantityInfo quantity
+        +String comprehensiveAnalysis
+        +String[] dietAdvice
+        +String[] lifestyleAdvice
+        +String nextStepAdvice
+        +String disclaimer
+    }
+
+    class ColorInfo {
+        +String name
+        +String hexColor
+        +String formationTime
+        +String interpretation
+    }
+
+    class ShapeInfo {
+        +String type
+        +String description
+        +String significance
+    }
+
+    class SizeInfo {
+        +String category
+        +String estimatedRangeMm
+        +String referenceObject
+    }
+
+    class TextureInfo {
+        +String type
+        +String visualCues
+    }
+
+    class CompositionInfo {
+        +String type
+        +String confidence
+        +String reasoning
+    }
+
+    class PatternInfo {
+        +String type
+        +String description
+    }
+
+    class QuantityInfo {
+        +Int estimatedCount
+        +String density
+    }
+
+    class ApiClient {
+        -axiosInstance: AxiosInstance
+        +get(url, config)
+        +post(url, data, config)
+        +put(url, data, config)
+        +uploadFile(url, formData, onProgress)
+    }
+
+    class AuthService {
+        +sendCode(phone) Promise~void~
+        +login(phone, code) Promise~AuthResponse~
+        +getMe() Promise~User~
+        +logout() void
+    }
+
+    class UploadService {
+        +uploadImage(file, onProgress) Promise~UploadResult~
+        +getStatus(uploadId) Promise~UploadStatus~
+    }
+
+    class PaymentService {
+        +createOrder(productType, reportId) Promise~PaymentOrder~
+        +queryStatus(paymentId) Promise~PaymentStatus~
+        +invokeWechatPay(params) Promise~void~
+    }
+
+    class ReportService {
+        +generateReport(imageId, userInfo) Promise~GenerateResult~
+        +getReport(reportId) Promise~Report~
+        +listReports() Promise~Report[]~
+        +downloadReport(reportId) Promise~Blob~
+    }
+
+    class AuthStore {
+        -user: User | null
+        -token: string | null
+        +isAuthenticated: boolean
+        +isMember: boolean
+        +login(phone, code) Promise
+        +logout() void
+        +loadUser() Promise
+    }
+
+    class ReportStore {
+        -currentReport: Report | null
+        -reports: Report[]
+        -analysisStatus: AnalysisStatus
+        +submitAnalysis(imageId, userInfo) Promise
+        +pollResult(reportId) Promise
+        +fetchReports() Promise
+    }
+
+    User "1" --> "*" Report : owns
+    User "1" --> "*" Payment : makes
+    Report "1" --> "1" AnalysisResult : contains
+    AnalysisResult "1" --> "1" ColorInfo
+    AnalysisResult "1" --> "1" ShapeInfo
+    AnalysisResult "1" --> "1" SizeInfo
+    AnalysisResult "1" --> "1" TextureInfo
+    AnalysisResult "1" --> "1" CompositionInfo
+    AnalysisResult "1" --> "1" PatternInfo
+    AnalysisResult "1" --> "1" QuantityInfo
+
+    ApiClient <.. AuthService : uses
+    ApiClient <.. UploadService : uses
+    ApiClient <.. PaymentService : uses
+    ApiClient <.. ReportService : uses
+    AuthStore ..> AuthService : uses
+    ReportStore ..> ReportService : uses

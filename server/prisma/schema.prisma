@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String    @id @default(uuid())
+  phone          String    @unique
+  name           String?
+  age            Int?
+  gender         String?   // male / female
+  birthday       String?   // ISO date
+  healthGoal     String?   // 健康目标
+  memberType     String    @default("FREE") // FREE / ANNUAL
+  memberExpireAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  reports        Report[]
+  payments       Payment[]
+  healthSnapshots HealthSnapshot[]
+  profiles       CustomerProfile[]
+}
+
+model CustomerProfile {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  email           String?
+  address         String?
+  emergencyContact String?
+  medicalHistory  String?  // 既往病史
+  dietaryPreference String? // 饮食偏好
+  notes           String?  // 备注
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Report {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  imageUrl        String
+  imageKey        String
+  analysis        String   @default("{}")
+  analysisVersion Int      @default(0)
+  reportType      String   @default("SINGLE_PAY") // SINGLE_PAY / ANNUAL_MEMBER
+  isUnlocked      Boolean  @default(false)  // 是否已解锁完整报告
+  unlockedAt      DateTime?                  // 解锁时间
+  unlockType      String?                    // PER_REPORT / ANNUAL / null
+  isDeleted       Boolean  @default(false)
+  deletedAt       DateTime?
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime?
+}
+
+model HealthSnapshot {
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  reportId         String
+  colorHex         String
+  colorName        String
+  severityLevel    String   @default("Moderate")
+  stoneCount       Int      @default(0)
+  stoneSizeCategory String  @default("未知")
+  patternType      String?
+  riskLevel        String   @default("未知")
+  createdAt        DateTime @default(now())
+}
+
+model Payment {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  amount      Float
+  productType String   // PER_REPORT / ANNUAL_MEMBER
+  tradeNo     String   @unique
+  prepayId    String?
+  reportId    String?  // 按次付费绑定的报告ID
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  paidAt      DateTime?
+}

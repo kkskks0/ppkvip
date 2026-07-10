@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+*.local
+server/uploads/
+server/prisma/*.db
+server/prisma/*.db-journal
+server/prisma/migrations/
+server/certs/

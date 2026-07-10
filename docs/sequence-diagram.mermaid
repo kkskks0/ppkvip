@@ -1,0 +1,55 @@
+sequenceDiagram
+    actor User
+    participant UploadPage as UploadPage (React)
+    participant PaymentPage as PaymentPage (React)
+    participant AnalysisPage as AnalysisPage (React)
+    participant ReportPage as ReportPage (React)
+    participant API as Express API
+    participant DB as SQLite
+    participant FS as File Store
+    participant DeepSeek as MiMo API
+
+    Note over User, DeepSeek: Phase 1: 图片上传
+    User->>UploadPage: 拍照/选择相册
+    UploadPage->>UploadPage: Canvas 压缩至 ≤2MB
+    UploadPage->>API: POST /api/upload (multipart)
+    API->>FS: 保存原始图片
+    API->>DB: INSERT upload record
+    API-->>UploadPage: { uploadId, previewUrl }
+    UploadPage->>UploadPage: 展示缩略图预览
+    User->>UploadPage: 点击「开始分析」
+
+    Note over User, DeepSeek: Phase 2: 支付
+    UploadPage->>PaymentPage: 导航（携带 uploadId）
+    PaymentPage->>PaymentPage: 展示方案选择 + 用户信息表单
+    User->>PaymentPage: 选择方案 + 填写姓名/年龄
+    PaymentPage->>API: POST /api/payment/create
+    API->>API: 创建支付订单
+    API->>API: 调用微信支付统一下单
+    API-->>PaymentPage: { prepayId, payParams }
+    PaymentPage->>PaymentPage: wx.chooseWXPay(payParams)
+    User->>PaymentPage: 微信中确认支付
+    PaymentPage->>API: 轮询 GET /api/payment/:id/status
+    Note over API: 微信异步回调 POST /api/payment/notify
+    API-->>PaymentPage: { status: PAID }
+
+    Note over User, DeepSeek: Phase 3: AI 分析
+    PaymentPage->>AnalysisPage: 导航（携带 reportId）
+    AnalysisPage->>API: POST /api/report/generate
+    API->>FS: 读取图片
+    API->>DeepSeek: POST 图片 + 分析 Prompt
+    DeepSeek-->>API: 分析结果（流式/批量）
+    API->>DB: UPDATE report (analysis JSON)
+    API-->>AnalysisPage: { reportId, status: COMPLETED }
+    AnalysisPage->>AnalysisPage: 展示 Loading 动画（分步提示）
+    AnalysisPage->>ReportPage: 导航
+
+    Note over User, DeepSeek: Phase 4: 报告展示
+    ReportPage->>API: GET /api/report/:id
+    API->>DB: SELECT report + analysis
+    API-->>ReportPage: { report (完整报告 JSON) }
+    ReportPage->>ReportPage: 渲染 4 张信息卡片
+    User->>ReportPage: 点击「下载报告」
+    ReportPage->>API: GET /api/report/:id/download
+    API-->>ReportPage: 图片 Blob（带品牌水印）
+    ReportPage->>User: 触发浏览器下载
