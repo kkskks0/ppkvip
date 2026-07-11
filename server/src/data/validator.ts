@@ -19,7 +19,6 @@ import {
   COMPOSITION_FIELD_RULES,
   PATTERN_FIELD_RULES,
   QUANTITY_FIELD_RULES,
-  DISEASE_RISK_FIELD_RULES,
 } from './schema'
 import type { FieldRule } from './schema'
 import { findClosestColor } from '../knowledge/colorCatalog'
