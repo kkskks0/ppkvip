@@ -467,6 +467,7 @@ app.get('/api/report-direct/:id', async (req, res) => {
   }
 
   // 快速分析阶段：返回颜色/形态/尺寸/质地/成分（免费）+ 锁定标记
+  // 如果已解锁但深度分析尚未完成，返回完整快速数据 + 待完成标记
   if (analysisType === 'QUICK' || analysisType === 'PENDING') {
     // 对已存储的质地/成分数据进行知识库验证
     const tcValid = analysis.texture?.type || analysis.composition?.type
@@ -476,30 +477,49 @@ app.get('/api/report-direct/:id', async (req, res) => {
     const textureData = tcValid.texture.valid ? (tcValid.texture.data || analysis.texture) : undefined
     const compositionData = tcValid.composition.valid ? (tcValid.composition.data || analysis.composition) : undefined
 
-    res.json({
-      code: 0,
-      data: {
-        id: report.id,
-        userId: report.userId,
-        imageUrl: report.imageUrl,
-        createdAt: report.createdAt,
-        isUnlocked: report.isUnlocked,
-        analysisType,
-        analysis: {
-          reportMeta: analysis.reportMeta,
-          color: analysis.color,
-          shape: analysis.shape,
-          size: analysis.size,
-          // 质地与成分免费展示 — 仅当数据在知识库中时才返回
-          texture: textureData,
-          composition: compositionData,
-          _textureValid: tcValid.texture.valid,
-          _compositionValid: tcValid.composition.valid,
-          _locked: true,
-        },
+    // Ensure sampleImage fallback: use report.imageUrl if reportMeta.sampleImage is missing
+    if (!analysis.reportMeta?.sampleImage) {
+      if (!analysis.reportMeta) analysis.reportMeta = {}
+      analysis.reportMeta.sampleImage = report.imageUrl
+    }
+
+    const baseResponse = {
+      id: report.id,
+      userId: report.userId,
+      imageUrl: report.imageUrl,
+      createdAt: report.createdAt,
+      isUnlocked: report.isUnlocked,
+      analysisType,
+      analysis: {
+        reportMeta: analysis.reportMeta,
+        color: analysis.color,
+        shape: analysis.shape,
+        size: analysis.size,
+        texture: textureData,
+        composition: compositionData,
+        _textureValid: tcValid.texture.valid,
+        _compositionValid: tcValid.composition.valid,
+        _locked: !report.isUnlocked,
       },
-      message: 'ok',
-    })
+    }
+
+    // Already unlocked but deep analysis pending → show all QUICK data with pending flag
+    if (report.isUnlocked) {
+      res.json({
+        code: 0,
+        data: {
+          ...baseResponse,
+          isDeepAnalysisPending: true,
+        },
+        message: 'ok',
+      })
+    } else {
+      res.json({
+        code: 0,
+        data: baseResponse,
+        message: 'ok',
+      })
+    }
   } else {
     // 深度分析完成：返回全部
     // 对质地/成分进行知识库验证
@@ -517,6 +537,12 @@ app.get('/api/report-direct/:id', async (req, res) => {
     }
     finalAnalysis._textureValid = analysis._textureValid ?? tcValid.texture.valid
     finalAnalysis._compositionValid = analysis._compositionValid ?? tcValid.composition.valid
+
+    // Ensure sampleImage fallback
+    if (!finalAnalysis.reportMeta?.sampleImage) {
+      if (!finalAnalysis.reportMeta) finalAnalysis.reportMeta = {}
+      finalAnalysis.reportMeta.sampleImage = report.imageUrl
+    }
 
     res.json({
       code: 0,
@@ -567,7 +593,7 @@ app.post('/api/report/:id/unlock', async (req, res) => {
       })
     }
 
-    // 如果尚未进行深度分析，返回提示前端调用 deep-analysis
+    // 如果尚未进行深度分析，立即返回并告知前端需要触发深度分析
     const needsDeepAnalysis = report.analysisType !== 'DEEP'
 
     res.json({
@@ -578,7 +604,7 @@ app.post('/api/report/:id/unlock', async (req, res) => {
         unlockType,
         needsDeepAnalysis,
       },
-      message: needsDeepAnalysis ? '解锁成功，即将生成深度报告' : '解锁成功',
+      message: needsDeepAnalysis ? '解锁成功，深度分析进行中' : '解锁成功',
     })
   } catch (err) {
     logError('ReportUnlock', err)

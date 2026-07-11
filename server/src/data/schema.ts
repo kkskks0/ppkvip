@@ -55,12 +55,11 @@ export interface AnalysisJsonSchema {
   pattern: { type: 'object'; required: true }
   quantity: { type: 'object'; required: true }
   comprehensiveAnalysis: { type: 'string'; required: true; minLen: 50 }
-  diseaseRisk: { type: 'object'; required: true }
+  healthIndicators: { type: 'object'; required: false }
   dietAdvice: { type: 'array'; required: true; minLen: 1 }
   lifestyleAdvice: { type: 'array'; required: true; minLen: 1 }
-  warningSignals: { type: 'array'; required: true }
+  observationNotes: { type: 'array'; required: false }
   nextStepAdvice: { type: 'string'; required: true; minLen: 10 }
-  medicalDisclaimer: { type: 'string'; required: true; minLen: 5 }
 }
 
 // ===== Schema 常量 =====
@@ -83,7 +82,6 @@ export const ANALYSIS_FIELD_RULES: FieldRule[] = [
   // Top-level
   { key: 'comprehensiveAnalysis', type: 'string', required: true, minLen: 50, defaults: '分析数据不完整，请重新上传图片。' },
   { key: 'nextStepAdvice', type: 'string', required: true, minLen: 10, defaults: '建议重新上传清晰图片获取完整分析。' },
-  { key: 'medicalDisclaimer', type: 'string', required: true, minLen: 5, defaults: '本分析仅供参考，不构成医疗建议。' },
 
   // Nested objects
   { key: 'color', type: 'object', required: true },
@@ -93,13 +91,14 @@ export const ANALYSIS_FIELD_RULES: FieldRule[] = [
   { key: 'composition', type: 'object', required: true },
   { key: 'pattern', type: 'object', required: true },
   { key: 'quantity', type: 'object', required: true },
-  { key: 'diseaseRisk', type: 'object', required: false },
+  { key: 'healthIndicators', type: 'object', required: false },
   { key: 'reportMeta', type: 'object', required: false },
 
   // Arrays
   { key: 'dietAdvice', type: 'array', required: true, minLen: 1, defaults: [] },
   { key: 'lifestyleAdvice', type: 'array', required: true, minLen: 1, defaults: [] },
   { key: 'warningSignals', type: 'array', required: false, defaults: [] },
+  { key: 'observationNotes', type: 'array', required: false, defaults: [] },
 ]
 
 export const COLOR_FIELD_RULES: FieldRule[] = [
@@ -150,17 +149,17 @@ export const QUANTITY_FIELD_RULES: FieldRule[] = [
   { key: 'significance', type: 'string', required: false, defaults: '无法判断' },
 ]
 
-export const DISEASE_RISK_FIELD_RULES: FieldRule[] = [
-  { key: 'highRisk', type: 'array', required: false, defaults: [] },
-  { key: 'mediumRisk', type: 'array', required: false, defaults: [] },
-  { key: 'lowRisk', type: 'array', required: false, defaults: [] },
+export const HEALTH_INDICATOR_FIELD_RULES: FieldRule[] = [
+  { key: 'attentionItems', type: 'array', required: false, defaults: [] },
+  { key: 'noticeItems', type: 'array', required: false, defaults: [] },
+  { key: 'positiveItems', type: 'array', required: false, defaults: [] },
 ]
 
-export const WARNING_SIGNAL_FIELD_RULES: FieldRule[] = [
+export const OBSERVATION_NOTE_FIELD_RULES: FieldRule[] = [
   { key: 'signal', type: 'string', required: true, minLen: 1 },
-  { key: 'indicates', type: 'string', required: true, minLen: 1 },
-  { key: 'severity', type: 'string', required: true, enum: SEVERITY_VALUES },
-  { key: 'action', type: 'string', required: true, minLen: 1 },
+  { key: 'description', type: 'string', required: true, minLen: 1 },
+  { key: 'attentionLevel', type: 'string', required: true },
+  { key: 'suggestion', type: 'string', required: true, minLen: 1 },
 ]
 
 // 子对象 schema 映射
@@ -172,7 +171,8 @@ export const NESTED_SCHEMAS: Record<string, FieldRule[]> = {
   composition: COMPOSITION_FIELD_RULES,
   pattern: PATTERN_FIELD_RULES,
   quantity: QUANTITY_FIELD_RULES,
-  diseaseRisk: DISEASE_RISK_FIELD_RULES,
+  healthIndicators: HEALTH_INDICATOR_FIELD_RULES,
+  observationNotes: OBSERVATION_NOTE_FIELD_RULES,
 }
 
 export { HEX_COLOR_PATTERN, CONFIDENCE_VALUES, SEVERITY_VALUES }

@@ -47,9 +47,18 @@ export interface QuantityInfo {
 }
 
 export interface DiseaseRiskInfo {
+  /** @deprecated use HealthIndicatorInfo instead */
   highRisk: string[]
+  /** @deprecated use HealthIndicatorInfo instead */
   mediumRisk: string[]
+  /** @deprecated use HealthIndicatorInfo instead */
   lowRisk: string[]
+}
+
+export interface HealthIndicatorInfo {
+  attentionItems: string[]
+  noticeItems: string[]
+  positiveItems: string[]
 }
 
 export interface DietAdviceItem {
@@ -65,10 +74,21 @@ export interface LifestyleAdviceItem {
 }
 
 export interface WarningSignalItem {
+  /** @deprecated use ObservationNoteItem instead */
   signal: string
+  /** @deprecated use ObservationNoteItem instead */
   indicates: string
+  /** @deprecated use ObservationNoteItem instead */
   severity: string
+  /** @deprecated use ObservationNoteItem instead */
   action: string
+}
+
+export interface ObservationNoteItem {
+  signal: string
+  description: string
+  attentionLevel: string
+  suggestion: string
 }
 
 export interface EnrichedData {
@@ -108,11 +128,12 @@ export interface AnalysisResult {
   quantity: QuantityInfo
   comprehensiveAnalysis: string
   diseaseRisk: DiseaseRiskInfo
+  healthIndicators?: HealthIndicatorInfo
   dietAdvice: DietAdviceItem[]
   lifestyleAdvice: LifestyleAdviceItem[]
   warningSignals: WarningSignalItem[]
+  observationNotes?: ObservationNoteItem[]
   nextStepAdvice: string
-  medicalDisclaimer: string
   schemaVersion?: number
   _enriched?: EnrichedData
 }

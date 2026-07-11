@@ -98,6 +98,7 @@ export default function ReportPage() {
   const [report, setReport] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [unlocking, setUnlocking] = useState(false)
+  const [deepAnalysisPending, setDeepAnalysisPending] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [snackOpen, setSnackOpen] = useState(false)
   const [snackMsg, setSnackMsg] = useState('')
@@ -112,12 +113,34 @@ export default function ReportPage() {
   const loadReport = useCallback(() => {
     if (id) {
       fetch(`${API_BASE}/report-direct/${id}`).then(r => r.json()).then(d => {
-        if (d.code === 0) setReport(d.data)
+        if (d.code === 0) {
+          setReport(d.data)
+          // Check if deep analysis is pending for an unlocked report
+          if (d.data.isDeepAnalysisPending) {
+            setDeepAnalysisPending(true)
+          } else if (d.data.analysisType === 'DEEP') {
+            setDeepAnalysisPending(false)
+          }
+        }
       }).finally(() => setLoading(false))
     }
   }, [id])
 
   useEffect(() => { loadReport() }, [loadReport])
+
+  // Poll for deep analysis completion when pending
+  useEffect(() => {
+    if (!deepAnalysisPending || !id) return
+    const interval = setInterval(() => {
+      fetch(`${API_BASE}/report-direct/${id}`).then(r => r.json()).then(d => {
+        if (d.code === 0 && d.data.analysisType === 'DEEP') {
+          setReport(d.data)
+          setDeepAnalysisPending(false)
+        }
+      }).catch(() => { /* ignore poll errors */ })
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [deepAnalysisPending, id])
 
   // Share report — useCallback to avoid re-creation on each render
   const handleShare = useCallback(async () => {
@@ -193,14 +216,27 @@ export default function ReportPage() {
       })
       const unlockData = await unlockRes.json()
       if (unlockData.code === 0) {
-        if (unlockData.data?.needsDeepAnalysis && unlockType === 'PER_REPORT') {
-          showMsg(t('deepAnalysisGenerating'), 'success')
-          try {
-            await fetch(`${API_BASE}/report/${id}/deep-analysis`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-          } catch { /* deep analysis failure is non-blocking */ }
-        }
-        // Directly show full report content without redundant "unlockSuccess" toast
+        // Load report immediately — shows all unlocked QUICK data right away
         loadReport()
+        // Fire deep analysis in background (non-blocking) — user sees results instantly
+        if (unlockData.data?.needsDeepAnalysis && unlockType === 'PER_REPORT') {
+          setDeepAnalysisPending(true)
+          showMsg(t('deepAnalysisGenerating'), 'success')
+          fetch(`${API_BASE}/report/${id}/deep-analysis`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+          }).then(r => r.json()).then(d => {
+            if (d.code === 0) {
+              loadReport() // Refresh when deep analysis completes
+            }
+          }).catch(() => { /* deep analysis failure is non-blocking */ })
+        }
+        // For ANNUAL unlock, immediately refresh without deep-analysis wait
+        if (unlockType === 'ANNUAL') {
+          // Deep analysis still needs to run — trigger in background
+          fetch(`${API_BASE}/report/${id}/deep-analysis`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+          }).catch(() => {})
+        }
       } else if (unlockData.code === 3003) {
         // Report already unlocked — silently jump to content
         loadReport()
@@ -296,12 +332,13 @@ export default function ReportPage() {
               </Grid>
             </Section>
 
-            {/* Sample Image with magnifier */}
-            {meta.sampleImage && (
+            {/* Sample Image with magnifier — fallback to report.imageUrl */}
+            {(meta.sampleImage || report.imageUrl) && (
               <Section title={t('sampleImage')} icon={<InfoIcon sx={{ fontSize: 18 }} />} color="#607D8B">
                 <Box sx={{ textAlign: 'center' }}>
                   {(() => {
-                    const imgUrl = meta.sampleImage.startsWith('http') ? meta.sampleImage : `${window.location.origin}/ppk${meta.sampleImage}`
+                    const rawImg = meta.sampleImage || report.imageUrl
+                    const imgUrl = rawImg.startsWith('http') ? rawImg : `${window.location.origin}/ppk${rawImg}`
                     return <Box component="img" src={imgUrl} onError={(e: any) => { e.target.style.display = 'none' }} sx={{ maxWidth: '100%', maxHeight: 300, borderRadius: 2, border: '1px solid #e0e0e0' }} />
                   })()}
                 </Box>
@@ -716,7 +753,25 @@ export default function ReportPage() {
             {/* ===== UNLOCKED CONTENT ===== */}
             {isUnlocked && (
               <Box id="unlocked-content">
+                {/* Deep analysis pending indicator */}
+                {deepAnalysisPending && (
+                  <Card sx={{ mb: 2, borderRadius: 2, boxShadow: '0 1px 8px rgba(0,0,0,0.06)', overflow: 'hidden', border: '1px solid #bbdefb' }}>
+                    <Box sx={{ bgcolor: '#e3f2fd', px: 2.5, py: 2, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <CircularProgress size={20} sx={{ color: '#1565c0' }} />
+                      <Box>
+                        <Typography fontWeight={600} fontSize={14} color="#1565c0">
+                          {t('deepAnalysisGenerating')}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {t('unlockedLabel')} · {t('freeContentLabel')}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Card>
+                )}
+
                 {/* Pattern & Risk */}
+                {!deepAnalysisPending && (
                 <Section title={t('patternRisk')} color="#c0392b">
                   <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 1, mb: 1.5 }}>
                     <Table size="small"><TableBody>
@@ -726,17 +781,19 @@ export default function ReportPage() {
                       <KVRow label={t('quantitySignificance')} value={a?.quantity?.significance} />
                     </TableBody></Table>
                   </TableContainer>
-                  {a?.diseaseRisk && (
+                  {(a?.healthIndicators || a?.diseaseRisk) && (
                     <Box>
                       <Typography fontWeight="bold" fontSize={14} sx={{ mb: 0.5 }}>{t('diseaseRisk')}</Typography>
-                      {a.diseaseRisk.highRisk?.length > 0 && <Box sx={{ mb: 0.5 }}><Chip icon={<WarningAmberIcon />} label={t('highRisk')} size="small" sx={{ bgcolor: '#ffebee', color: '#c62828', fontSize: 12, height: 26, px: 1.5, mb: 0.3 }} />{a.diseaseRisk.highRisk.map((r: string, i: number) => <Chip key={i} label={r} size="small" sx={{ bgcolor: '#ffebee', color: '#c62828', mr: 0.5, mb: 0.3, fontSize: 12, height: 26, px: 1.5 }} />)}</Box>}
-                      {a.diseaseRisk.mediumRisk?.length > 0 && <Box sx={{ mb: 0.5 }}><Chip label={t('mediumRisk')} size="small" sx={{ bgcolor: '#fff3e0', color: '#e65100', fontSize: 12, height: 26, px: 1.5, mb: 0.3 }} />{a.diseaseRisk.mediumRisk.map((r: string, i: number) => <Chip key={i} label={r} size="small" sx={{ bgcolor: '#fff3e0', color: '#e65100', mr: 0.5, mb: 0.3, fontSize: 12, height: 26, px: 1.5 }} />)}</Box>}
-                      {a.diseaseRisk.lowRisk?.length > 0 && <Box><Chip icon={<CheckCircleIcon />} label={t('lowRisk')} size="small" sx={{ bgcolor: '#e8f5e9', color: '#2e7d32', fontSize: 12, height: 26, px: 1.5, mb: 0.3 }} />{a.diseaseRisk.lowRisk.map((r: string, i: number) => <Chip key={i} label={r} size="small" sx={{ bgcolor: '#e8f5e9', color: '#2e7d32', mr: 0.5, mb: 0.3, fontSize: 12, height: 26, px: 1.5 }} />)}</Box>}
+                      {(a.healthIndicators?.attentionItems || a.diseaseRisk?.highRisk)?.length > 0 && <Box sx={{ mb: 0.5 }}><Chip icon={<WarningAmberIcon />} label={t('highRisk')} size="small" sx={{ bgcolor: '#ffebee', color: '#c62828', fontSize: 12, height: 26, px: 1.5, mb: 0.3 }} />{(a.healthIndicators?.attentionItems || a.diseaseRisk?.highRisk || []).map((r: string, i: number) => <Chip key={i} label={r} size="small" sx={{ bgcolor: '#ffebee', color: '#c62828', mr: 0.5, mb: 0.3, fontSize: 12, height: 26, px: 1.5 }} />)}</Box>}
+                      {(a.healthIndicators?.noticeItems || a.diseaseRisk?.mediumRisk)?.length > 0 && <Box sx={{ mb: 0.5 }}><Chip label={t('mediumRisk')} size="small" sx={{ bgcolor: '#fff3e0', color: '#e65100', fontSize: 12, height: 26, px: 1.5, mb: 0.3 }} />{(a.healthIndicators?.noticeItems || a.diseaseRisk?.mediumRisk || []).map((r: string, i: number) => <Chip key={i} label={r} size="small" sx={{ bgcolor: '#fff3e0', color: '#e65100', mr: 0.5, mb: 0.3, fontSize: 12, height: 26, px: 1.5 }} />)}</Box>}
+                      {(a.healthIndicators?.positiveItems || a.diseaseRisk?.lowRisk)?.length > 0 && <Box><Chip icon={<CheckCircleIcon />} label={t('lowRisk')} size="small" sx={{ bgcolor: '#e8f5e9', color: '#2e7d32', fontSize: 12, height: 26, px: 1.5, mb: 0.3 }} />{(a.healthIndicators?.positiveItems || a.diseaseRisk?.lowRisk || []).map((r: string, i: number) => <Chip key={i} label={r} size="small" sx={{ bgcolor: '#e8f5e9', color: '#2e7d32', mr: 0.5, mb: 0.3, fontSize: 12, height: 26, px: 1.5 }} />)}</Box>}
                     </Box>
                   )}
                 </Section>
+                )}
 
                 {/* Comprehensive */}
+                {!deepAnalysisPending && (
                 <Section title={t('comprehensive')} color="#1a5276">
                   <Box sx={{ lineHeight: 2, fontSize: 14, color: '#333' }}>
                     {(a?.comprehensiveAnalysis || '').split(SENTENCE_SPLIT_RE).reduce((acc: string[], part: string, i: number) => { if (i % 2 === 0) acc.push(part); else acc[acc.length - 1] += part; return acc }, []).filter((s: string) => s.trim()).map((s: string, i: number) => {
@@ -745,9 +802,10 @@ export default function ReportPage() {
                     })}
                   </Box>
                 </Section>
+                )}
 
                 {/* 30-Day Diet Plan */}
-                {a?.dailyDietPlan?.length > 0 && (
+                {!deepAnalysisPending && a?.dailyDietPlan?.length > 0 && (
                   <Section title={t('dailyDietPlan')} icon={<RestaurantIcon sx={{ fontSize: 18 }} />} color="#00695C">
                     {a.dailyDietPlan.map((day: any, i: number) => (
                       <Paper key={i} variant="outlined" sx={{ p: 1.5, mb: 1, borderRadius: 1.5, bgcolor: i % 2 === 0 ? '#f9fbe7' : 'white' }}>
@@ -783,6 +841,7 @@ export default function ReportPage() {
                 )}
 
                 {/* Diet & Lifestyle */}
+                {!deepAnalysisPending && (
                 <Section title={t('recommendations')} color="#27ae60">
                   {a?.dietAdvice?.map((g: any, i: number) => (
                     <Box key={i} sx={{ mb: 1.5 }}>
@@ -802,27 +861,35 @@ export default function ReportPage() {
                     </Box>
                   ))}
                 </Section>
+                )}
 
-                {/* Warnings */}
+                {/* Warnings / Observation Notes */}
+                {!deepAnalysisPending && (
                 <Section title={t('warnings')} color="#e74c3c">
-                  {a?.warningSignals?.length > 0 && (
+                  {(a?.observationNotes?.length > 0 || a?.warningSignals?.length > 0) && (
                     <Box sx={{ mb: 1.5 }}>
-                      <Typography fontWeight="bold" fontSize={14} sx={{ mb: 0.5, display: 'flex', alignItems: 'center', gap: 0.5 }}><WarningAmberIcon sx={{ fontSize: 16, color: '#e74c3c' }} /> {t('warningSignals')}</Typography>
-                      {a.warningSignals.map((w: any, i: number) => (
-                        <Paper key={i} variant="outlined" sx={{ p: 1, mb: 0.5, borderRadius: 1, borderLeft: `3px solid ${sevColor[w.severity] || '#999'}` }}>
+                      <Typography fontWeight="bold" fontSize={14} sx={{ mb: 0.5, display: 'flex', alignItems: 'center', gap: 0.5 }}><InfoIcon sx={{ fontSize: 16, color: '#e74c3c' }} /> {t('warningSignals')}</Typography>
+                      {(a.observationNotes || a.warningSignals || []).map((w: any, i: number) => {
+                        const level = w.attentionLevel || w.severity || 'notice'
+                        const levelColor: Record<string, string> = { '重点关注': '#F44336', '需要留意': '#FF9800', '一般关注': '#4CAF50', '轻度': '#4CAF50', '中度': '#FF9800', '重度': '#F44336', '严重': '#F44336', 'Severe': '#F44336', 'Moderate': '#FF9800', 'Mild': '#4CAF50' }
+                        const levelBg: Record<string, string> = { '重点关注': '#ffebee', '需要留意': '#fff3e0', '一般关注': '#e8f5e9', '轻度': '#e8f5e9', '中度': '#fff3e0', '重度': '#ffebee', '严重': '#ffebee', 'Severe': '#ffebee', 'Moderate': '#fff3e0', 'Mild': '#e8f5e9' }
+                        return (
+                        <Paper key={i} variant="outlined" sx={{ p: 1, mb: 0.5, borderRadius: 1, borderLeft: `3px solid ${levelColor[level] || '#999'}` }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.2 }}>
-                            <Chip label={w.severity} size="small" sx={{ bgcolor: sevBg[w.severity], color: sevColor[w.severity], fontSize: 11, height: 24, px: 1.5 }}/>
+                            <Chip label={level} size="small" sx={{ bgcolor: levelBg[level] || '#f5f5f5', color: levelColor[level] || '#666', fontSize: 11, height: 24, px: 1.5 }}/>
                             <Typography fontWeight="bold" fontSize={14}>{w.signal}</Typography>
                           </Box>
-                          <Typography color="text.secondary" fontSize={13}>{t('possible')}：{w.indicates}</Typography>
-                          <Typography color="primary" display="block" fontSize={13}>{t('action')}：{w.action}</Typography>
+                          {(w.description || w.indicates) && <Typography color="text.secondary" fontSize={13}>{w.description || w.indicates}</Typography>}
+                          {(w.suggestion || w.action) && <Typography color="primary" display="block" fontSize={13}>{t('action')}：{w.suggestion || w.action}</Typography>}
                         </Paper>
-                      ))}
+                        )
+                      })}
                     </Box>
                   )}
                   {a?.nextStepAdvice && <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1, bgcolor: '#e3f2fd', border: '1px solid #90caf9', mb: 1.5 }}><Typography fontWeight="bold" color="#1565c0" fontSize={14} sx={{ mb: 0.3 }}>{t('nextSteps')}</Typography><Typography sx={{ lineHeight: 1.8, fontSize: 14 }}>{a.nextStepAdvice}</Typography></Paper>}
-                  <Box sx={{ p: 1.5, bgcolor: '#fafafa', borderRadius: 1, border: '1px solid #e0e0e0' }}><Typography color="text.secondary" sx={{ lineHeight: 1.5, fontSize: 13 }}>⚠️ {a?.medicalDisclaimer || t('disclaimer')}</Typography></Box>
+                  <Box sx={{ p: 1.5, bgcolor: '#fafafa', borderRadius: 1, border: '1px solid #e0e0e0' }}><Typography color="text.secondary" sx={{ lineHeight: 1.5, fontSize: 13 }}>ℹ️ {t('disclaimer')}</Typography></Box>
                 </Section>
+                )}
               </Box>
             )}
           </Box>

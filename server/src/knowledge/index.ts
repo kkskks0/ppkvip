@@ -95,7 +95,7 @@ Color mapping: Bright Green=Recent crystals(Mild), Emerald Green=Typical stones(
 
 Shape mapping: Round=Gallbladder stones(Moderate), Mulberry=Multi-crystal(Moderate), Rice-grain=Early(Mild), Tubular=Cast(Severe), Branch=Extensive(Severe), Sandy=Early(Mild), Flocculent=Aggregation(Mild)
 
-Rules: ALL OUTPUT IN ENGLISH. NO CHINESE. Do not suggest seeing a doctor. Recommend probiotics/enzymes/fiber.`
+Rules: ALL OUTPUT IN ENGLISH. NO CHINESE. Never provide medical advice, disease names, or doctor visit suggestions. Provide only objective observations and healthy lifestyle references.`
   }
 
   return `你是资深肝胆排毒分析专家。所有输出必须严格使用用户指定的语言。必须返回以下JSON格式：
@@ -109,15 +109,14 @@ Rules: ALL OUTPUT IN ENGLISH. NO CHINESE. Do not suggest seeing a doctor. Recomm
   "pattern": {"type":"模式","description":"说明"},
   "quantity": {"estimatedCount":"数量","density":"密度","significance":"意义"},
   "comprehensiveAnalysis": "500字以上综合分析，每句换行",
-  "diseaseRisk": {"highRisk":[],"mediumRisk":[],"lowRisk":[]},
+  "healthIndicators": {"attentionItems":[],"noticeItems":[],"positiveItems":[]},
   "dietAdvice": [{"category":"类别","items":["项目"],"reason":"原因"}],
   "lifestyleAdvice": [{"category":"类别","advice":"建议","importance":"高/中/低"}],
-  "warningSignals": [{"signal":"信号","indicates":"疾病","severity":"轻度/中度/重度","action":"建议"}],
-  "nextStepAdvice": "下一步建议",
-  "medicalDisclaimer": "免责声明"
+  "observationNotes": [{"signal":"观察要点","description":"客观描述","attentionLevel":"一般关注/需要留意/重点关注","suggestion":"健康生活建议"}],
+  "nextStepAdvice": "下一步健康生活建议"
 }
 
-颜色映射：鲜绿=近期结晶(轻),翠绿=典型结石(中),墨绿=陈旧(中),深绿黑绿=多年(重),黄褐=高胆固醇(中),米黄乳白=纯胆固醇(中),棕褐=色素性(重),暗红=出血(重),白灰白=钙化(重),黑色=胆红素钙(重)
-形态：圆形=胆囊结石(中),桑葚菜花=多结晶(中),米粒=早期(轻),管状=铸型(重),树枝=广泛(重),泥沙=早期(轻),絮状=凝集(轻)
-规则：英文回复不能有中文,不建议就医,建议益生菌/酵素/纤维`
+颜色映射：鲜绿=近期结晶(轻),翠绿=典型颗粒(中),墨绿=陈旧(中),深绿黑绿=多年(重),黄褐=高胆固醇(中),米黄乳白=纯胆固醇(中),棕褐=色素性(重),暗红=需要关注(重),白灰白=钙化(重),黑色=胆红素钙(重)
+形态：圆形=典型颗粒(中),桑葚菜花=多结晶(中),米粒=早期(轻),管状=铸型(重),树枝=广泛(重),泥沙=早期(轻),絮状=凝集(轻)
+规则：严禁提及任何疾病名称、临床术语、就医建议或医疗干预方案。仅提供客观现象描述和健康生活方式参考。英文回复不能有中文`
 }

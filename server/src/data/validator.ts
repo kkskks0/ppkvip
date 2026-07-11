@@ -573,14 +573,14 @@ export function checkDataIntegrity(data: Record<string, unknown>): IntegrityChec
     message: compAnalysis && compAnalysis.length < 50 ? `综合分析过短: ${compAnalysis.length}字` : undefined,
   })
 
-  // 检查3：风险数据一致性
-  const diseaseRisk = data.diseaseRisk as Record<string, unknown> | undefined
-  const highRisk = (diseaseRisk?.highRisk as unknown[] || [])
-  const mediumRisk = (diseaseRisk?.mediumRisk as unknown[] || [])
+  // 检查3：健康指标一致性（兼容新旧字段名）
+  const healthIndicators = (data.healthIndicators || data.diseaseRisk) as Record<string, unknown> | undefined
+  const attentionItems = ((healthIndicators?.attentionItems || healthIndicators?.highRisk) as unknown[] || [])
+  const noticeItems = ((healthIndicators?.noticeItems || healthIndicators?.mediumRisk) as unknown[] || [])
   checks.push({
-    name: '风险评估一致性',
-    passed: highRisk.length + mediumRisk.length > 0 || !!diseaseRisk,
-    message: '风险数据为空，可能需要复查',
+    name: '健康指标一致性',
+    passed: attentionItems.length + noticeItems.length > 0 || !!healthIndicators,
+    message: '健康指标数据为空，分析可能不完整',
   })
 
   // 检查4：饮食建议非空
