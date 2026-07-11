@@ -11,6 +11,7 @@ COPY server/prisma/ ./server/prisma/
 COPY server/src/ ./server/src/
 COPY server/tsconfig.json ./server/
 COPY server/.env ./server/
+COPY server/.env ./.env
 
 # Copy database to Prisma's expected location (./dev.db relative to schema)
 COPY server/dev.db ./server/prisma/dev.db
