@@ -107,14 +107,53 @@ export interface EnrichedData {
 export interface ReportMeta {
   userName: string
   gender: string
+  age?: number
+  medicalHistory?: string
   analysisTime: string
   hasReference: boolean
   sampleImage?: string
+  analysisStage?: string
   validationInfo?: {
     valid: boolean
     warnings: string[]
     integrityChecks: { name: string; passed: boolean; message?: string }[]
   }
+}
+
+// ===== 付费专属高价值模块 =====
+
+export interface PurificationStage {
+  currentPhase: string        // 1-初始清除期/2-深度净化期/3-修复调理期/4-巩固维持期
+  phaseDescription: string
+  progressPercentage: number
+  nextPhaseExpectation: string
+}
+
+export interface BileFlowAnalysis {
+  flowQuality: string          // 正常/轻度黏稠/中度黏稠/明显淤滞
+  evidenceBasis: string
+  stasisIndicators: string[]
+  optimizationSuggestions: string[]
+}
+
+export interface SupplementRecommendation {
+  name: string
+  rationale: string
+  foodSources: string[]
+  timing: string
+  priority: 'must' | 'optional'
+}
+
+export interface PersonalizedSupplementPlan {
+  coreRecommendations: SupplementRecommendation[]
+  precautions: string[]
+}
+
+export interface NextCleanseOptimization {
+  readyForNextCleanse: string
+  suggestedInterval: string
+  protocolAdjustments: string[]
+  preparationFocus: string[]
 }
 
 export interface AnalysisResult {
@@ -134,8 +173,16 @@ export interface AnalysisResult {
   warningSignals: WarningSignalItem[]
   observationNotes?: ObservationNoteItem[]
   nextStepAdvice: string
+  // Premium modules (付费专属)
+  purificationStage?: PurificationStage
+  bileFlowAnalysis?: BileFlowAnalysis
+  personalizedSupplementPlan?: PersonalizedSupplementPlan
+  nextCleanseOptimization?: NextCleanseOptimization
   schemaVersion?: number
   _enriched?: EnrichedData
+  _textureValid?: boolean
+  _compositionValid?: boolean
+  _locked?: boolean
 }
 
 export interface Report {

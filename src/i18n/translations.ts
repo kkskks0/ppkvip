@@ -13,10 +13,10 @@ export const translations: Record<string, Record<string, string>> = {
     male: '男',
     female: '女',
     defaultValue: '用户',
-    imageCount: '排出物图片（最多3张，可多角度拍摄）',
+    imageCount: '排出物图片（仅限1张）',
     add: '添加',
     tips: '拍摄建议',
-    tip1: '将排出物倒入白色容器中，尽量分散铺开，有助于AI更准确识别每颗排出物的特征',
+    tip1: '将排出物倒入白色容器中，尽量分散铺开，单张清晰照片即可，有助于AI准确识别排出物特征',
     tip2: '自然光下拍摄，避免反光和阴影',
     tip3: '放置瓶盖作为尺寸参照物',
     tip4: '可多角度拍摄（正面、侧面、细节）',
@@ -126,6 +126,10 @@ export const translations: Record<string, Record<string, string>> = {
     premiumTeaser5: '个性化饮食建议',
     premiumTeaser6: '生活方式指导',
     premiumTeaser7: '警示信号与后续建议',
+    premiumTeaserStage: '净化阶段评估',
+    premiumTeaserBile: '胆汁流动性分析',
+    premiumTeaserSupplement: '个性化补充方案',
+    premiumTeaserOptimize: '下次净化优化建议',
     freeContentLabel: '颜色 · 形态 · 大小 · 质地 · 成分 — 以上内容已为您免费展示',
 
     // Payment cards
@@ -150,9 +154,6 @@ export const translations: Record<string, Record<string, string>> = {
     badgeBestValue: '超值',
     annualMemberLabel: '年费会员',
     unlockedLabel: '已解锁',
-
-    // Trust
-    trustFooter: '7天无理由退款 · 数据加密 · 隐私保护',
 
     // Share
     shareReport: '分享报告',
@@ -185,6 +186,13 @@ export const translations: Record<string, Record<string, string>> = {
     unlockSuccess: '解锁成功，完整报告已加载',
     unlockFailed: '解锁失败',
     deepAnalysisGenerating: '深度分析生成中，请稍候…',
+    streamingHint: '各模块并行生成，完成一个即显示一个',
+    mVisual: '形态·颜色·数量',
+    mTexture: '质地与成分',
+    mHealth: '健康关注指标',
+    mDiet: '饮食方案',
+    mLifestyle: '生活与观察',
+    mPurify: '净化与补充',
     paymentFailed: '支付失败',
 
     // Delete
@@ -225,6 +233,14 @@ export const translations: Record<string, Record<string, string>> = {
 
     // Diet plan
     dailyDietPlan: '7天饮食计划',
+    // Consolidation diet (7-day)
+    consolidation: '七天巩固饮食办法',
+    cfFramework: '每日饮食框架',
+    cfRecipes: '七日食谱轮换',
+    cfNotes: '关键注意事项',
+    cfAvoid: '严格避开',
+    cfMustDo: '每日必做',
+    cfLongterm: '长期巩固建议',
     day: '第',
     dayUnit: '天',
     breakfast: '早餐',
@@ -249,6 +265,23 @@ export const translations: Record<string, Record<string, string>> = {
     errorDelete: '删除失败',
     notFound: '未找到相关数据',
 
+    // Premium modules (付费专属高价值模块)
+    purificationStageTitle: '净化阶段评估',
+    nextPhaseExpectation: '下一阶段预期',
+    bileFlowTitle: '胆汁流分析',
+    stasisIndicators: '淤滞表现指标',
+    optimizationSuggestions: '优化建议',
+    supplementPlanTitle: '个性化营养补充方案',
+    priorityMust: '核心',
+    priorityOptional: '可选',
+    foodSources: '食物来源',
+    suggestedTiming: '建议时间',
+    precautions: '注意事项',
+    nextCleanseOptimizationTitle: '下次净化优化建议',
+    readyForNextCleanse: '是否可进行下次净化',
+    protocolAdjustments: '方案调整',
+    preparationFocus: '准备重点',
+
     // Knowledge quotes
     quote1: '肝脏是人体最大的解毒器官，每天处理巨噬细胞杀死的数千个异常细胞',
     quote2: '胆汁每天分泌约600~1000ml，经胆囊浓缩5~10倍后储存',
@@ -258,6 +291,45 @@ export const translations: Record<string, Record<string, string>> = {
     quote6: '超过70%的人存在不同程度的肝内胆管沉积',
     quote7: '肝胆沉积的形成与高脂高糖饮食、缺乏运动及长期精神压力密切相关',
     quote8: '姜黄中的姜黄素具有显著的抗炎和利胆作用',
+
+    // Home redesign
+    homeHeroTitle: '读懂身体的净化信号',
+    homeHeroDesc: '拍一张排出物照片，AI从颜色、形态到成分，深度解读——不是医疗诊断，是你与身体的对话笔记',
+    howItWorks: '三步看懂',
+    howStep1Title: '拍照',
+    howStep1Desc: '拍摄排出物照片',
+    howStep2Title: '分析',
+    howStep2Desc: 'AI多维度自动识别',
+    howStep3Title: '洞察',
+    howStep3Desc: '可视化报告与个性化建议',
+    capabilityTitle: 'AI 会从哪些角度观察',
+    capItem1Title: '颜色',
+    capItem1Desc: '11级颜色图谱，映射不同代谢阶段',
+    capItem2Title: '形态',
+    capItem2Desc: '颗粒、团块、结晶，形态特征自动归类',
+    capItem3Title: '质地',
+    capItem3Desc: '软硬、疏松、致密，质地反映净化深度',
+    capItem4Title: '成分特征',
+    capItem4Desc: '视觉特征推断成分类型与形成倾向',
+    capItem5Title: '数量规模',
+    capItem5Desc: '与参照物对比，量化排出规模',
+    capItem6Title: '对比追踪',
+    capItem6Desc: '多次记录对比，直观追踪净化进展',
+
+    // Upload redesign
+    uploadZoneTitle: '上传排出物照片',
+    uploadZoneHint: '点击或拖拽上传，JPG / PNG，单张即可',
+    uploadZoneRetake: '更换照片',
+    quickInfoLabel: '完善信息（选填，帮助AI更精准分析）',
+    uploadAge: '年龄',
+    uploadAgeHint: '请输入年龄（1-120）',
+    uploadMedicalHistory: '疾病史',
+    uploadMedicalHistoryHint: '请输入既往疾病史，多个可用逗号分隔',
+    photoGuideTitle: '怎么拍才更准？',
+    photoGuideItem1: '白色容器',
+    photoGuideItem2: '自然光线',
+    photoGuideItem3: '带参照物',
+    photoGuideItem4: '分散铺开',
   },
 
   zhTW: {
@@ -274,10 +346,10 @@ export const translations: Record<string, Record<string, string>> = {
     male: '男',
     female: '女',
     defaultValue: '使用者',
-    imageCount: '排出物圖片（最多3張，可多角度拍攝）',
+    imageCount: '排出物圖片（僅限1張）',
     add: '新增',
     tips: '拍攝建議',
-    tip1: '將排出物倒入白色容器中，盡量分散鋪開，有助於AI更準確辨識每顆排出物的特徵',
+    tip1: '將排出物倒入白色容器中，盡量分散鋪開，單張清晰照片即可，有助於AI準確辨識排出物特徵',
     tip2: '在自然光下拍攝，避免反光與陰影',
     tip3: '放置瓶蓋作為尺寸參照物',
     tip4: '可從多角度拍攝（正面、側面、細節）',
@@ -387,6 +459,10 @@ export const translations: Record<string, Record<string, string>> = {
     premiumTeaser5: '個人化飲食建議',
     premiumTeaser6: '生活方式指導',
     premiumTeaser7: '警示訊號與後續建議',
+    premiumTeaserStage: '淨化階段評估',
+    premiumTeaserBile: '膽汁流動性分析',
+    premiumTeaserSupplement: '個人化補充方案',
+    premiumTeaserOptimize: '下次淨化優化建議',
     freeContentLabel: '顏色 · 形態 · 大小 · 質地 · 成分 — 以上內容已為您免費展示',
 
     // Payment cards
@@ -411,9 +487,6 @@ export const translations: Record<string, Record<string, string>> = {
     badgeBestValue: '超值',
     annualMemberLabel: '年費會員',
     unlockedLabel: '已解鎖',
-
-    // Trust
-    trustFooter: '7天無理由退款 · 數據加密 · 隱私保護',
 
     // Share
     shareReport: '分享報告',
@@ -446,6 +519,13 @@ export const translations: Record<string, Record<string, string>> = {
     unlockSuccess: '解鎖成功，完整報告已載入',
     unlockFailed: '解鎖失敗',
     deepAnalysisGenerating: '深度分析生成中，請稍候…',
+    streamingHint: '各模組並行生成，完成一個即顯示一個',
+    mVisual: '形態·顏色·數量',
+    mTexture: '質地與成分',
+    mHealth: '健康關注指標',
+    mDiet: '飲食方案',
+    mLifestyle: '生活與觀察',
+    mPurify: '淨化與補充',
     paymentFailed: '支付失敗',
 
     // Delete
@@ -486,6 +566,14 @@ export const translations: Record<string, Record<string, string>> = {
 
     // Diet plan
     dailyDietPlan: '7天飲食計劃',
+    // Consolidation diet (7-day)
+    consolidation: '七天鞏固飲食辦法',
+    cfFramework: '每日飲食框架',
+    cfRecipes: '七日食譜輪換',
+    cfNotes: '關鍵注意事項',
+    cfAvoid: '嚴格避開',
+    cfMustDo: '每日必做',
+    cfLongterm: '長期鞏固建議',
     day: '第',
     dayUnit: '天',
     breakfast: '早餐',
@@ -510,6 +598,23 @@ export const translations: Record<string, Record<string, string>> = {
     errorDelete: '刪除失敗',
     notFound: '找不到相關資料',
 
+    // Premium modules (付費專屬高價值模塊)
+    purificationStageTitle: '淨化階段評估',
+    nextPhaseExpectation: '下一階段預期',
+    bileFlowTitle: '膽汁流分析',
+    stasisIndicators: '淤滯表現指標',
+    optimizationSuggestions: '優化建議',
+    supplementPlanTitle: '個人化營養補充方案',
+    priorityMust: '核心',
+    priorityOptional: '可選',
+    foodSources: '食物來源',
+    suggestedTiming: '建議時間',
+    precautions: '注意事項',
+    nextCleanseOptimizationTitle: '下次淨化優化建議',
+    readyForNextCleanse: '是否可進行下次淨化',
+    protocolAdjustments: '方案調整',
+    preparationFocus: '準備重點',
+
     // Knowledge quotes
     quote1: '肝臟是人體最大的解毒器官，每天處理巨噬細胞殺死的數千個異常細胞',
     quote2: '膽汁每天分泌約600~1000ml，經膽囊濃縮5~10倍後儲存',
@@ -519,6 +624,45 @@ export const translations: Record<string, Record<string, string>> = {
     quote6: '超過70%的人存在不同程度的肝內膽管沉積',
     quote7: '肝膽沉積的形成與高脂高糖飲食、缺乏運動及長期精神壓力密切相關',
     quote8: '薑黃中的薑黃素具有顯著的抗發炎與利膽作用',
+
+    // Home redesign
+    homeHeroTitle: '讀懂身體的淨化信號',
+    homeHeroDesc: '拍一張排出物照片，AI從顏色、形態到成分，深度解讀——不是醫療診斷，是你與身體的對話筆記',
+    howItWorks: '三步看懂',
+    howStep1Title: '拍照',
+    howStep1Desc: '拍攝排出物照片',
+    howStep2Title: '分析',
+    howStep2Desc: 'AI多維度自動辨識',
+    howStep3Title: '洞察',
+    howStep3Desc: '可視化報告與個人化建議',
+    capabilityTitle: 'AI 會從哪些角度觀察',
+    capItem1Title: '顏色',
+    capItem1Desc: '11級顏色圖譜，對應不同代謝階段',
+    capItem2Title: '形態',
+    capItem2Desc: '顆粒、團塊、結晶，形態特徵自動歸類',
+    capItem3Title: '質地',
+    capItem3Desc: '軟硬、疏鬆、緻密，質地反映淨化深度',
+    capItem4Title: '成分特徵',
+    capItem4Desc: '視覺特徵推斷成分類型與形成傾向',
+    capItem5Title: '數量規模',
+    capItem5Desc: '與參照物對比，量化排出規模',
+    capItem6Title: '對比追蹤',
+    capItem6Desc: '多次記錄對比，直觀追蹤淨化進展',
+
+    // Upload redesign
+    uploadZoneTitle: '上傳排出物照片',
+    uploadZoneHint: '點擊或拖曳上傳，JPG / PNG，單張即可',
+    uploadZoneRetake: '更換照片',
+    quickInfoLabel: '完善資訊（選填，幫助AI更精準分析）',
+    uploadAge: '年齡',
+    uploadAgeHint: '請輸入年齡（1-120）',
+    uploadMedicalHistory: '疾病史',
+    uploadMedicalHistoryHint: '請輸入既往疾病史，多個可用逗號分隔',
+    photoGuideTitle: '怎麼拍才更準？',
+    photoGuideItem1: '白色容器',
+    photoGuideItem2: '自然光線',
+    photoGuideItem3: '帶參照物',
+    photoGuideItem4: '分散鋪開',
   },
 
   en: {
@@ -535,10 +679,10 @@ export const translations: Record<string, Record<string, string>> = {
     male: 'Male',
     female: 'Female',
     defaultValue: 'User',
-    imageCount: 'Discharge images (up to 3, from multiple angles)',
+    imageCount: 'Discharge photo (1 only)',
     add: 'Add',
     tips: 'Photography Tips',
-    tip1: 'Spread the discharge in a white container for optimal AI recognition of individual particles',
+    tip1: 'Spread the discharge in a white container — a single clear photo is sufficient for accurate AI recognition',
     tip2: 'Shoot in natural light; avoid glare and shadows',
     tip3: 'Place a bottle cap alongside as a size reference',
     tip4: 'Capture multiple angles (front, side, close-up)',
@@ -648,6 +792,10 @@ export const translations: Record<string, Record<string, string>> = {
     premiumTeaser5: 'Personalized Dietary Advice',
     premiumTeaser6: 'Lifestyle Guidance',
     premiumTeaser7: 'Warning Signs & Next Steps',
+    premiumTeaserStage: 'Purification Stage Assessment',
+    premiumTeaserBile: 'Bile Flow Analysis',
+    premiumTeaserSupplement: 'Personalized Supplement Plan',
+    premiumTeaserOptimize: 'Next Cleanse Optimization',
     freeContentLabel: 'Color · Shape · Size · Texture · Composition — shown above at no cost',
 
     // Payment cards
@@ -672,9 +820,6 @@ export const translations: Record<string, Record<string, string>> = {
     badgeBestValue: 'Best Value',
     annualMemberLabel: 'Annual Member',
     unlockedLabel: 'Unlocked',
-
-    // Trust
-    trustFooter: '7-day refund · Encrypted data · Privacy protected',
 
     // Share
     shareReport: 'Share Report',
@@ -707,6 +852,13 @@ export const translations: Record<string, Record<string, string>> = {
     unlockSuccess: 'Unlocked! Your full report is now available.',
     unlockFailed: 'Unlock failed',
     deepAnalysisGenerating: 'Generating in-depth analysis, please wait…',
+    streamingHint: 'Modules generated in parallel — each shows as soon as it is ready',
+    mVisual: 'Form · Color · Quantity',
+    mTexture: 'Texture & Composition',
+    mHealth: 'Health Indicators',
+    mDiet: 'Diet Plan',
+    mLifestyle: 'Lifestyle & Observation',
+    mPurify: 'Purification & Supplement',
     paymentFailed: 'Payment failed',
 
     // Delete
@@ -747,6 +899,14 @@ export const translations: Record<string, Record<string, string>> = {
 
     // Diet plan
     dailyDietPlan: '7-Day Meal Plan',
+    // Consolidation diet (7-day)
+    consolidation: '7-Day Consolidation Diet',
+    cfFramework: 'Daily Framework',
+    cfRecipes: '7-Day Recipe Rotation',
+    cfNotes: 'Key Notes',
+    cfAvoid: 'Avoid',
+    cfMustDo: 'Daily Must-Do',
+    cfLongterm: 'Long-Term Tips',
     day: 'Day ',
     dayUnit: '',
     breakfast: 'Breakfast',
@@ -771,6 +931,23 @@ export const translations: Record<string, Record<string, string>> = {
     errorDelete: 'Delete failed',
     notFound: 'Data not found',
 
+    // Premium modules
+    purificationStageTitle: 'Purification Stage Assessment',
+    nextPhaseExpectation: 'Next Phase Expectation',
+    bileFlowTitle: 'Bile Flow Analysis',
+    stasisIndicators: 'Stasis Indicators',
+    optimizationSuggestions: 'Optimization Suggestions',
+    supplementPlanTitle: 'Personalized Supplement Plan',
+    priorityMust: 'Core',
+    priorityOptional: 'Optional',
+    foodSources: 'Food Sources',
+    suggestedTiming: 'Suggested Timing',
+    precautions: 'Precautions',
+    nextCleanseOptimizationTitle: 'Next Cleanse Optimization',
+    readyForNextCleanse: 'Ready for Next Cleanse',
+    protocolAdjustments: 'Protocol Adjustments',
+    preparationFocus: 'Preparation Focus',
+
     // Knowledge quotes
     quote1: 'The liver is the body\'s largest detoxification organ, processing thousands of abnormal cells eliminated by macrophages each day',
     quote2: 'Approximately 600–1000 mL of bile is secreted daily, concentrated 5–10× by the gallbladder before storage',
@@ -780,6 +957,45 @@ export const translations: Record<string, Record<string, string>> = {
     quote6: 'Over 70% of people have some degree of intrahepatic biliary deposits',
     quote7: 'Biliary deposit formation is closely linked to high-fat/high-sugar diets, physical inactivity, and chronic stress',
     quote8: 'Curcumin in turmeric exhibits potent anti-inflammatory and choleretic (bile-flow-promoting) effects',
+
+    // Home redesign
+    homeHeroTitle: 'Decode Your Cleanse Signals',
+    homeHeroDesc: 'Snap a photo of your discharge. AI analyzes color, form, and composition — not a medical diagnosis, a conversation with your body.',
+    howItWorks: 'Three Steps',
+    howStep1Title: 'Snap',
+    howStep1Desc: 'Photograph the discharge',
+    howStep2Title: 'Analyze',
+    howStep2Desc: 'Multi-dimensional AI analysis',
+    howStep3Title: 'Insight',
+    howStep3Desc: 'Visualized report & personalized tips',
+    capabilityTitle: 'What AI Examines',
+    capItem1Title: 'Color',
+    capItem1Desc: '11-color spectrum mapped to metabolic phases',
+    capItem2Title: 'Form',
+    capItem2Desc: 'Particles, clusters, crystals — auto-classified',
+    capItem3Title: 'Texture',
+    capItem3Desc: 'Soft, loose, firm — texture reveals cleanse depth',
+    capItem4Title: 'Composition',
+    capItem4Desc: 'Visual traits suggest composition type and origin',
+    capItem5Title: 'Scale',
+    capItem5Desc: 'Reference-based quantification of discharge volume',
+    capItem6Title: 'Trends',
+    capItem6Desc: 'Multi-session comparison tracks your progress',
+
+    // Upload redesign
+    uploadZoneTitle: 'Upload Discharge Photo',
+    uploadZoneHint: 'Click or drag to upload. JPG / PNG, one photo is enough',
+    uploadZoneRetake: 'Change Photo',
+    quickInfoLabel: 'Add Info (optional, for accurate analysis)',
+    uploadAge: 'Age',
+    uploadAgeHint: 'Enter age (1-120)',
+    uploadMedicalHistory: 'Medical History',
+    uploadMedicalHistoryHint: 'Enter medical history, separate with commas',
+    photoGuideTitle: 'Tips for a Better Photo',
+    photoGuideItem1: 'White Container',
+    photoGuideItem2: 'Natural Light',
+    photoGuideItem3: 'Size Reference',
+    photoGuideItem4: 'Spread Out',
   },
 }
 
